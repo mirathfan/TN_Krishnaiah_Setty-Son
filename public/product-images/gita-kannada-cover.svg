@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Srimad Bhagavad Gita Kannada book cover</title>
+  <desc id="desc">A saffron and gold book cover for Srimad Bhagavad Gita.</desc>
+  <defs>
+    <linearGradient id="gitaBg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#a54616"/>
+      <stop offset="0.5" stop-color="#dd8f25"/>
+      <stop offset="1" stop-color="#6e2012"/>
+    </linearGradient>
+  </defs>
+  <rect width="900" height="1200" fill="url(#gitaBg)"/>
+  <rect x="72" y="72" width="756" height="1056" fill="none" stroke="#ffe1a1" stroke-width="8"/>
+  <rect x="128" y="128" width="644" height="944" fill="none" stroke="#fff2c7" stroke-width="2" opacity="0.7"/>
+  <circle cx="450" cy="506" r="215" fill="#ffe1a1" opacity="0.22"/>
+  <path d="M450 352l64 132 146 21-105 103 25 145-130-68-130 68 25-145-105-103 146-21z" fill="#f6c24a" opacity="0.88"/>
+  <text x="450" y="244" fill="#fff8dc" font-family="Georgia, serif" font-size="72" font-weight="700" text-anchor="middle">Srimad</text>
+  <text x="450" y="326" fill="#fff8dc" font-family="Georgia, serif" font-size="80" font-weight="700" text-anchor="middle">Bhagavad Gita</text>
+  <text x="450" y="840" fill="#fff2c7" font-family="Arial, sans-serif" font-size="38" font-weight="700" text-anchor="middle">Kannada translation with meaning</text>
+  <text x="450" y="950" fill="#ffe1a1" font-family="Arial, sans-serif" font-size="30" font-weight="700" text-anchor="middle">T N K Publications</text>
+</svg>

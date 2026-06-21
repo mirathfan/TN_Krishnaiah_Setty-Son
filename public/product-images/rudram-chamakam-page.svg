@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Rudram Chamakam sample page</title>
+  <desc id="desc">A clean sample interior page preview for Rudram Chamakam.</desc>
+  <rect width="900" height="1200" fill="#fffaf0"/>
+  <rect x="80" y="80" width="740" height="1040" fill="#fffdf8" stroke="#d9c396" stroke-width="4"/>
+  <text x="450" y="172" fill="#64131d" font-family="Georgia, serif" font-size="54" font-weight="700" text-anchor="middle">Rudram Chamakam</text>
+  <text x="450" y="228" fill="#9b6819" font-family="Arial, sans-serif" font-size="26" font-weight="700" text-anchor="middle">Sample Page Preview</text>
+  <line x1="150" x2="750" y1="282" y2="282" stroke="#e5d2a8" stroke-width="3"/>
+  <g fill="#4a3127" font-family="Georgia, serif" font-size="34">
+    <text x="150" y="380">Om namo bhagavate rudraya</text>
+    <text x="150" y="450">Namaste rudra manyava</text>
+    <text x="150" y="520">Utot ishave namah</text>
+    <text x="150" y="590">Namaste astu dhanvane</text>
+  </g>
+  <g fill="#715240" font-family="Arial, sans-serif" font-size="24">
+    <text x="150" y="700">Kannada meaning and chanting guidance</text>
+    <text x="150" y="744">for daily parayana, pooja, and homa use.</text>
+  </g>
+  <rect x="150" y="840" width="600" height="118" rx="10" fill="#fff4d8" stroke="#eadfca"/>
+  <text x="450" y="910" fill="#64131d" font-family="Arial, sans-serif" font-size="24" font-weight="700" text-anchor="middle">Clear print for regular devotional reading</text>
+</svg>

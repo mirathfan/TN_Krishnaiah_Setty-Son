@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200" role="img" aria-labelledby="title desc">
+  <title id="title">Vishnu Sahasranama book cover</title>
+  <desc id="desc">A deep maroon devotional book cover for Vishnu Sahasranama.</desc>
+  <defs>
+    <linearGradient id="vishnuBg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#3c1021"/>
+      <stop offset="0.56" stop-color="#7d1830"/>
+      <stop offset="1" stop-color="#21080f"/>
+    </linearGradient>
+  </defs>
+  <rect width="900" height="1200" fill="url(#vishnuBg)"/>
+  <rect x="74" y="74" width="752" height="1052" fill="none" stroke="#e5b85a" stroke-width="8"/>
+  <rect x="118" y="118" width="664" height="964" fill="none" stroke="#ffe7a8" stroke-width="2" opacity="0.65"/>
+  <circle cx="450" cy="526" r="235" fill="#e5b85a" opacity="0.18"/>
+  <circle cx="450" cy="526" r="112" fill="#e5b85a" opacity="0.85"/>
+  <path d="M450 344c70 56 112 121 112 182s-42 126-112 182c-70-56-112-121-112-182s42-126 112-182z" fill="none" stroke="#ffe7a8" stroke-width="9"/>
+  <text x="450" y="260" fill="#fff4c9" font-family="Georgia, serif" font-size="82" font-weight="700" text-anchor="middle">Vishnu</text>
+  <text x="450" y="352" fill="#fff4c9" font-family="Georgia, serif" font-size="76" font-weight="700" text-anchor="middle">Sahasranama</text>
+  <text x="450" y="846" fill="#ffe7a8" font-family="Arial, sans-serif" font-size="38" font-weight="700" text-anchor="middle">Commentary and meaning</text>
+  <text x="450" y="952" fill="#e5b85a" font-family="Arial, sans-serif" font-size="30" font-weight="700" text-anchor="middle">Gita Press Gorakhpur</text>
+</svg>

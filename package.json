@@ -1,0 +1,27 @@
+{
+  "name": "tn-krishnaiah-setty-site",
+  "version": "1.0.0",
+  "description": "Premium single-page website for T N Krishnaiah Setty & Son.",
+  "private": true,
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.108.2",
+    "lucide-react": "^1.14.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.2.4",
+    "@vitejs/plugin-react": "^6.0.1",
+    "tailwindcss": "^4.2.4",
+    "vite": "^8.0.10"
+  }
+}
