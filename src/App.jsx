@@ -343,6 +343,94 @@ function makeCartWhatsAppMessage(cartItems, customer = {}, orderNumber = '', pay
     .join('\n');
 }
 
+const CUSTOMER_PROFILE_STORAGE_KEY = 'tnk-customer-profile-v1';
+const CUSTOMER_BULK_PROFILE_STORAGE_KEY = 'tnk-customer-bulk-profile-v1';
+const CUSTOMER_ORDER_HISTORY_STORAGE_KEY = 'tnk-customer-order-history-v1';
+const CUSTOMER_WISHLIST_STORAGE_KEY = 'tnk-customer-wishlist-v1';
+
+const emptyCustomerProfile = {
+  fullName: '',
+  phone: '',
+  email: '',
+  city: '',
+  pincode: '',
+};
+
+const emptyBulkOrderProfile = {
+  organizationName: '',
+  contactName: '',
+  phone: '',
+  city: '',
+  requirement: '',
+};
+
+function canUseCustomerStorage() {
+  return typeof window !== 'undefined' && window.localStorage;
+}
+
+function readCustomerStorage(key, fallback) {
+  if (!canUseCustomerStorage()) return fallback;
+
+  try {
+    const stored = window.localStorage.getItem(key);
+    return stored ? JSON.parse(stored) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeCustomerStorage(key, value) {
+  if (!canUseCustomerStorage()) return;
+
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Storage can fail in private browsing. The in-memory state still works.
+  }
+}
+
+function normalizeCustomerProfile(profile = {}) {
+  return {
+    fullName: String(profile.fullName || '').trim(),
+    phone: String(profile.phone || '').trim(),
+    email: String(profile.email || '').trim(),
+    city: String(profile.city || '').trim(),
+    pincode: String(profile.pincode || '').trim(),
+  };
+}
+
+function normalizeBulkOrderProfile(profile = {}) {
+  return {
+    organizationName: String(profile.organizationName || '').trim(),
+    contactName: String(profile.contactName || '').trim(),
+    phone: String(profile.phone || '').trim(),
+    city: String(profile.city || '').trim(),
+    requirement: String(profile.requirement || '').trim(),
+  };
+}
+
+function normalizeCustomerOrder(order = {}) {
+  return {
+    ...order,
+    items: Array.isArray(order.items) ? order.items.map((item) => ({ ...item })) : [],
+    customer: { ...(order.customer || {}) },
+  };
+}
+
+function makeBulkProfileWhatsAppMessage(profile = {}) {
+  return [
+    'Namaste, I would like help with a bulk order from T N Krishnaiah Setty & Son.',
+    profile.organizationName ? `Temple / institution / group: ${profile.organizationName}` : '',
+    profile.contactName ? `Contact person: ${profile.contactName}` : '',
+    profile.phone ? `Phone / WhatsApp: ${profile.phone}` : '',
+    profile.city ? `City: ${profile.city}` : '',
+    profile.requirement ? `Books / requirement: ${profile.requirement}` : '',
+    'Please confirm availability, pricing, packing, and delivery options.',
+  ]
+    .filter(Boolean)
+    .join('\n');
+}
+
 function getProductSku(product) {
   return product.isbn || product.id?.toUpperCase() || '';
 }
@@ -647,6 +735,46 @@ function Header({
                 {item}
               </a>
             ))}
+          </div>
+
+          <div className="grid gap-3 border-t border-[#eadfca] p-4 lg:hidden">
+            <button
+              type="button"
+              onClick={() => {
+                setIsMenuOpen(false);
+                onOpenAccount();
+              }}
+              className="secondary-button w-full justify-start"
+            >
+              <User className="h-5 w-5" aria-hidden="true" />
+              Account
+            </button>
+            <a href="#catalog" onClick={() => setIsMenuOpen(false)} className="secondary-button w-full justify-start">
+              <Heart className="h-5 w-5" aria-hidden="true" />
+              Wishlist {wishlistCount}
+            </a>
+            <button
+              type="button"
+              onClick={() => {
+                setIsMenuOpen(false);
+                onOpenCart();
+              }}
+              className="secondary-button w-full justify-start"
+            >
+              <ShoppingCart className="h-5 w-5" aria-hidden="true" />
+              Cart {cartCount}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setIsMenuOpen(false);
+                onOpenTrack();
+              }}
+              className="secondary-button w-full justify-start"
+            >
+              <PackageSearch className="h-5 w-5" aria-hidden="true" />
+              Track Order
+            </button>
           </div>
 
           {isMegaOpen && (
@@ -2959,16 +3087,17 @@ function CartDrawer({ isOpen, cartItems, onClose, onAdd, onRemove, onDelete, onC
   );
 }
 
-function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false, orderError = '' }) {
+function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false, orderError = '', savedCustomerProfile = emptyCustomerProfile }) {
   const { subtotal, shipping, total } = getOrderTotals(cartItems);
+  const normalizedSavedProfile = normalizeCustomerProfile(savedCustomerProfile);
   const [form, setForm] = useState({
-    fullName: '',
-    phone: '',
-    email: '',
+    fullName: normalizedSavedProfile.fullName,
+    phone: normalizedSavedProfile.phone,
+    email: normalizedSavedProfile.email,
     address: '',
-    city: '',
+    city: normalizedSavedProfile.city,
     state: '',
-    pincode: '',
+    pincode: normalizedSavedProfile.pincode,
     notes: '',
     paymentMethod: '',
   });
@@ -3352,21 +3481,397 @@ function TrackOrderModal({ onClose }) {
   );
 }
 
-function AccountModal({ onClose }) {
+function AccountModal({
+  onClose,
+  customerProfile,
+  bulkOrderProfile,
+  wishlistProducts,
+  customerOrders,
+  onSaveCustomerProfile,
+  onSaveBulkOrderProfile,
+  onRemoveWishlist,
+  onAddToCart,
+  onRepeatOrder,
+}) {
+  const [activeSection, setActiveSection] = useState('profile');
+  const [profileForm, setProfileForm] = useState(customerProfile);
+  const [bulkForm, setBulkForm] = useState(bulkOrderProfile);
+  const [profileNotice, setProfileNotice] = useState('');
+  const [bulkNotice, setBulkNotice] = useState('');
+  const [profileError, setProfileError] = useState('');
+  const [bulkError, setBulkError] = useState('');
+  const savedProfile = normalizeCustomerProfile(customerProfile);
+  const savedBulkProfile = normalizeBulkOrderProfile(bulkOrderProfile);
+  const profileComplete = Boolean(savedProfile.fullName && savedProfile.phone);
+  const bulkProfileComplete = Boolean(savedBulkProfile.contactName && savedBulkProfile.phone);
+  const bulkWhatsAppLink = makeWhatsAppLink(makeBulkProfileWhatsAppMessage(savedBulkProfile));
+
+  const sections = [
+    { id: 'profile', label: profileComplete ? 'Profile Saved' : 'Login / Sign up' },
+    { id: 'wishlist', label: `Saved Wishlist (${wishlistProducts.length})` },
+    { id: 'orders', label: `Order History (${customerOrders.length})` },
+    { id: 'bulk', label: bulkProfileComplete ? 'Bulk Profile Saved' : 'Bulk Order Profile' },
+  ];
+
+  const updateProfileField = (field, value) => {
+    setProfileForm((current) => ({ ...current, [field]: value }));
+    setProfileNotice('');
+    setProfileError('');
+  };
+
+  const updateBulkField = (field, value) => {
+    setBulkForm((current) => ({ ...current, [field]: value }));
+    setBulkNotice('');
+    setBulkError('');
+  };
+
+  const saveProfile = (event) => {
+    event.preventDefault();
+    const normalized = normalizeCustomerProfile(profileForm);
+
+    if (!normalized.fullName || !normalized.phone) {
+      setProfileError('Please enter the customer name and WhatsApp phone number.');
+      return;
+    }
+
+    onSaveCustomerProfile(normalized);
+    setProfileNotice('Customer profile saved for faster checkout on this device.');
+  };
+
+  const saveBulkProfile = (event) => {
+    event.preventDefault();
+    const normalized = normalizeBulkOrderProfile(bulkForm);
+
+    if (!normalized.contactName || !normalized.phone) {
+      setBulkError('Please enter the contact person and WhatsApp phone number.');
+      return;
+    }
+
+    onSaveBulkOrderProfile(normalized);
+    setBulkNotice('Bulk order profile saved. You can now send the enquiry on WhatsApp.');
+  };
+
   return (
-    <Modal onClose={onClose} compact>
-      <h2 className="font-serif text-3xl font-bold text-[#351b12]">Customer Account</h2>
-      <p className="mt-2 text-[#715240]">
-        Account features planned for the full store: saved addresses, order
-        history, wishlist, temple/institution bulk profiles, and repeat orders.
-      </p>
-      <div className="mt-5 grid gap-3">
-        {['Login / Sign up', 'Saved Wishlist', 'Order History', 'Bulk Order Profile'].map((item) => (
-          <div key={item} className="flex items-center justify-between border border-[#eadfca] bg-[#fffdf8] p-4">
-            <span className="font-bold text-[#351b12]">{item}</span>
-            <ChevronRight className="h-4 w-4 text-[#8c5f17]" />
-          </div>
-        ))}
+    <Modal onClose={onClose}>
+      <div className="border-b border-[#eadfca] pb-5 pr-12">
+        <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#9b6819]">Customer tools</p>
+        <h2 className="mt-2 font-serif text-3xl font-bold text-[#351b12]">Customer Account</h2>
+        <p className="mt-2 max-w-3xl text-sm leading-6 text-[#715240] sm:text-base">
+          Save customer details for faster checkout, manage wishlisted books,
+          review orders placed from this device, and send bulk order enquiries.
+        </p>
+      </div>
+
+      <div className="mt-5 grid gap-5 lg:grid-cols-[260px_1fr]">
+        <nav className="grid gap-3 self-start" aria-label="Customer account sections">
+          {sections.map((section) => (
+            <button
+              key={section.id}
+              type="button"
+              onClick={() => setActiveSection(section.id)}
+              className={`flex min-h-14 items-center justify-between border px-4 py-3 text-left text-sm font-black transition ${
+                activeSection === section.id
+                  ? 'border-[#64131d] bg-[#fff4d8] text-[#64131d]'
+                  : 'border-[#eadfca] bg-[#fffdf8] text-[#351b12] hover:border-[#b68b3a]'
+              }`}
+            >
+              <span>{section.label}</span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-[#8c5f17]" />
+            </button>
+          ))}
+        </nav>
+
+        <div className="min-w-0">
+          {activeSection === 'profile' && (
+            <section className="border border-[#eadfca] bg-[#fffdf8] p-5">
+              <div className="flex items-start gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#fff4d8] text-[#64131d]">
+                  <User className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="font-serif text-2xl font-bold text-[#351b12]">Login / Sign up</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#715240]">
+                    This saves a customer profile on this device for quick
+                    checkout. Full customer accounts can be connected later
+                    when customer auth is added.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={saveProfile} className="mt-5 grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  Full Name
+                  <input
+                    className="form-field"
+                    value={profileForm.fullName}
+                    onChange={(event) => updateProfileField('fullName', event.target.value)}
+                    placeholder="Customer name"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  Phone / WhatsApp
+                  <input
+                    className="form-field"
+                    value={profileForm.phone}
+                    onChange={(event) => updateProfileField('phone', event.target.value)}
+                    placeholder="+91"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  Email optional
+                  <input
+                    className="form-field"
+                    type="email"
+                    value={profileForm.email}
+                    onChange={(event) => updateProfileField('email', event.target.value)}
+                    placeholder="name@example.com"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  City
+                  <input
+                    className="form-field"
+                    value={profileForm.city}
+                    onChange={(event) => updateProfileField('city', event.target.value)}
+                    placeholder="Bengaluru"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  Pincode
+                  <input
+                    className="form-field"
+                    value={profileForm.pincode}
+                    onChange={(event) => updateProfileField('pincode', event.target.value)}
+                    placeholder="560053"
+                  />
+                </label>
+                <div className="grid gap-2 sm:items-end">
+                  <button type="submit" className="primary-button min-h-12 w-full">
+                    <Save className="h-5 w-5" />
+                    Save Profile
+                  </button>
+                </div>
+              </form>
+              {(profileError || profileNotice) && (
+                <p className={`mt-4 border px-4 py-3 text-sm font-semibold ${
+                  profileError
+                    ? 'border-[#e8b8b8] bg-[#fff1f1] text-[#9b1c2c]'
+                    : 'border-[#9fd7a8] bg-[#eefaf1] text-[#1f7a3b]'
+                }`}>
+                  {profileError || profileNotice}
+                </p>
+              )}
+            </section>
+          )}
+
+          {activeSection === 'wishlist' && (
+            <section className="border border-[#eadfca] bg-[#fffdf8] p-5">
+              <h3 className="font-serif text-2xl font-bold text-[#351b12]">Saved Wishlist</h3>
+              <p className="mt-1 text-sm leading-6 text-[#715240]">
+                Books saved with the heart button are shown here for quick review.
+              </p>
+
+              {wishlistProducts.length ? (
+                <div className="mt-5 grid gap-4">
+                  {wishlistProducts.map((product) => (
+                    <article key={product.id} className="grid gap-4 border border-[#eadfca] bg-white p-4 sm:grid-cols-[72px_1fr]">
+                      <ProductImage product={product} variant="mini" />
+                      <div className="min-w-0">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                          <div className="min-w-0">
+                            <h4 className="font-serif text-xl font-bold text-[#351b12]">{product.title}</h4>
+                            <p className="mt-1 text-sm text-[#715240]">{product.category} / {product.language}</p>
+                            <p className="mt-2 font-black text-[#64131d]">{formatPrice(product.price)}</p>
+                          </div>
+                          <div className="grid gap-2 sm:min-w-36">
+                            <a href={`#product/${product.id}`} onClick={onClose} className="secondary-button w-full">
+                              View Book
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                onAddToCart(product);
+                                onClose();
+                              }}
+                              className="primary-button w-full"
+                            >
+                              <ShoppingCart className="h-4 w-4" />
+                              Add to Cart
+                            </button>
+                            <button type="button" onClick={() => onRemoveWishlist(product.id)} className="admin-small-button w-full">
+                              Remove
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-5 border border-dashed border-[#d9c396] bg-white p-6 text-center">
+                  <Heart className="mx-auto h-10 w-10 text-[#9b6819]" />
+                  <h4 className="mt-3 font-serif text-xl font-bold text-[#351b12]">No saved books yet</h4>
+                  <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#715240]">
+                    Tap the heart icon on any book to save it here.
+                  </p>
+                  <a href="#catalog" onClick={onClose} className="primary-button mx-auto mt-4 w-full sm:w-fit">
+                    Browse Books
+                  </a>
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeSection === 'orders' && (
+            <section className="border border-[#eadfca] bg-[#fffdf8] p-5">
+              <h3 className="font-serif text-2xl font-bold text-[#351b12]">Order History</h3>
+              <p className="mt-1 text-sm leading-6 text-[#715240]">
+                Recent order requests placed from this device are listed here.
+                For older orders, use the order number or WhatsApp the shop.
+              </p>
+
+              {customerOrders.length ? (
+                <div className="mt-5 grid gap-4">
+                  {customerOrders.map((order) => (
+                    <article key={order.orderNumber || order.id} className="border border-[#eadfca] bg-white p-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <p className="font-serif text-xl font-bold text-[#64131d]">{order.orderNumber}</p>
+                          <p className="mt-1 text-sm font-semibold text-[#715240]">{formatDateTime(order.createdAt)}</p>
+                        </div>
+                        <strong className="text-xl text-[#64131d]">{formatPrice(order.total)}</strong>
+                      </div>
+                      <div className="mt-4 grid gap-2 text-sm text-[#604638]">
+                        {(order.items || []).map((item) => (
+                          <div key={`${order.orderNumber}-${item.id || item.title}`} className="flex justify-between gap-3">
+                            <span>{item.title} x {item.quantity}</span>
+                            <strong>{formatPrice(Number(item.price || 0) * Number(item.quantity || 1))}</strong>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                        <a
+                          href={makeWhatsAppLink(makeCartWhatsAppMessage(order.items || [], order.customer, order.orderNumber, order.paymentMethod))}
+                          className="secondary-button w-full border-[#1f7a3b] text-[#1f7a3b] hover:border-[#1f7a3b] hover:bg-[#eefaf1]"
+                        >
+                          <MessageCircle className="h-5 w-5" />
+                          WhatsApp Follow-up
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onRepeatOrder(order);
+                            onClose();
+                          }}
+                          className="primary-button w-full"
+                        >
+                          <ShoppingCart className="h-5 w-5" />
+                          Add Again
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <div className="mt-5 border border-dashed border-[#d9c396] bg-white p-6 text-center">
+                  <PackageSearch className="mx-auto h-10 w-10 text-[#9b6819]" />
+                  <h4 className="mt-3 font-serif text-xl font-bold text-[#351b12]">No order history yet</h4>
+                  <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#715240]">
+                    Checkout requests made from this browser will appear here
+                    after the order confirmation is shown.
+                  </p>
+                  <a href="#catalog" onClick={onClose} className="primary-button mx-auto mt-4 w-full sm:w-fit">
+                    Start Shopping
+                  </a>
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeSection === 'bulk' && (
+            <section className="border border-[#eadfca] bg-[#fffdf8] p-5">
+              <div className="flex items-start gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-md bg-[#fff4d8] text-[#64131d]">
+                  <Store className="h-5 w-5" />
+                </span>
+                <div>
+                  <h3 className="font-serif text-2xl font-bold text-[#351b12]">Bulk Order Profile</h3>
+                  <p className="mt-1 text-sm leading-6 text-[#715240]">
+                    Save details for temple, school, institution, reseller, or
+                    family bulk orders, then send the enquiry on WhatsApp.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={saveBulkProfile} className="mt-5 grid gap-4 sm:grid-cols-2">
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  Temple / Institution / Group
+                  <input
+                    className="form-field"
+                    value={bulkForm.organizationName}
+                    onChange={(event) => updateBulkField('organizationName', event.target.value)}
+                    placeholder="Example: Sri Rama Mandira"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  Contact Person
+                  <input
+                    className="form-field"
+                    value={bulkForm.contactName}
+                    onChange={(event) => updateBulkField('contactName', event.target.value)}
+                    placeholder="Name"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  Phone / WhatsApp
+                  <input
+                    className="form-field"
+                    value={bulkForm.phone}
+                    onChange={(event) => updateBulkField('phone', event.target.value)}
+                    placeholder="+91"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                  City
+                  <input
+                    className="form-field"
+                    value={bulkForm.city}
+                    onChange={(event) => updateBulkField('city', event.target.value)}
+                    placeholder="Bengaluru"
+                  />
+                </label>
+                <label className="grid gap-2 text-sm font-bold text-[#351b12] sm:col-span-2">
+                  Books / Requirement
+                  <textarea
+                    className="form-field min-h-28 resize-none"
+                    value={bulkForm.requirement}
+                    onChange={(event) => updateBulkField('requirement', event.target.value)}
+                    placeholder="Book names, quantities, language, temple function date, packing needs..."
+                  />
+                </label>
+                <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
+                  <button type="submit" className="primary-button min-h-12 w-full">
+                    <Save className="h-5 w-5" />
+                    Save Bulk Profile
+                  </button>
+                  <a href={bulkWhatsAppLink} className="secondary-button min-h-12 w-full border-[#1f7a3b] text-[#1f7a3b] hover:border-[#1f7a3b] hover:bg-[#eefaf1]">
+                    <MessageCircle className="h-5 w-5" />
+                    Send on WhatsApp
+                  </a>
+                </div>
+              </form>
+              {(bulkError || bulkNotice) && (
+                <p className={`mt-4 border px-4 py-3 text-sm font-semibold ${
+                  bulkError
+                    ? 'border-[#e8b8b8] bg-[#fff1f1] text-[#9b1c2c]'
+                    : 'border-[#9fd7a8] bg-[#eefaf1] text-[#1f7a3b]'
+                }`}>
+                  {bulkError || bulkNotice}
+                </p>
+              )}
+            </section>
+          )}
+        </div>
       </div>
     </Modal>
   );
@@ -3499,8 +4004,21 @@ export default function App() {
   const [selectedPublisher, setSelectedPublisher] = useState('');
   const [selectedType, setSelectedType] = useState('');
   const [sortBy, setSortBy] = useState('popular');
-  const [wishlist, setWishlist] = useState([]);
+  const [wishlist, setWishlist] = useState(() => {
+    const storedWishlist = readCustomerStorage(CUSTOMER_WISHLIST_STORAGE_KEY, []);
+    return Array.isArray(storedWishlist) ? storedWishlist.filter(Boolean) : [];
+  });
   const [cart, setCart] = useState({});
+  const [customerProfile, setCustomerProfile] = useState(() =>
+    normalizeCustomerProfile(readCustomerStorage(CUSTOMER_PROFILE_STORAGE_KEY, emptyCustomerProfile)),
+  );
+  const [bulkOrderProfile, setBulkOrderProfile] = useState(() =>
+    normalizeBulkOrderProfile(readCustomerStorage(CUSTOMER_BULK_PROFILE_STORAGE_KEY, emptyBulkOrderProfile)),
+  );
+  const [customerOrders, setCustomerOrders] = useState(() => {
+    const storedOrders = readCustomerStorage(CUSTOMER_ORDER_HISTORY_STORAGE_KEY, []);
+    return Array.isArray(storedOrders) ? storedOrders.map(normalizeCustomerOrder) : [];
+  });
   const [productsList, setProductsList] = useState(() => initialProducts.map(normalizeProduct));
   const [isProductLoading, setIsProductLoading] = useState(true);
   const [productError, setProductError] = useState('');
@@ -3521,6 +4039,22 @@ export default function App() {
   const [isTrackOpen, setIsTrackOpen] = useState(false);
   const [isAccountOpen, setIsAccountOpen] = useState(false);
   const [orderConfirmation, setOrderConfirmation] = useState(null);
+
+  useEffect(() => {
+    writeCustomerStorage(CUSTOMER_WISHLIST_STORAGE_KEY, wishlist);
+  }, [wishlist]);
+
+  useEffect(() => {
+    writeCustomerStorage(CUSTOMER_PROFILE_STORAGE_KEY, customerProfile);
+  }, [customerProfile]);
+
+  useEffect(() => {
+    writeCustomerStorage(CUSTOMER_BULK_PROFILE_STORAGE_KEY, bulkOrderProfile);
+  }, [bulkOrderProfile]);
+
+  useEffect(() => {
+    writeCustomerStorage(CUSTOMER_ORDER_HISTORY_STORAGE_KEY, customerOrders);
+  }, [customerOrders]);
 
   useEffect(() => {
     const handleRouteChange = () => setRoute(getCurrentRoute());
@@ -3633,6 +4167,10 @@ export default function App() {
   }, [isAdminAuthenticated, isAdminAuthLoading, route.type]);
 
   const productMap = useMemo(() => new Map(productsList.map((product) => [product.id, product])), [productsList]);
+  const wishlistProducts = useMemo(
+    () => wishlist.map((id) => productMap.get(id)).filter(Boolean),
+    [productMap, wishlist],
+  );
   const currentProduct = route.type === 'product' ? productMap.get(route.productId) : null;
   const relatedProducts = useMemo(() => {
     if (!currentProduct) return [];
@@ -3723,6 +4261,52 @@ export default function App() {
     setWishlist((current) =>
       current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
     );
+  };
+
+  const saveCustomerProfile = (profile) => {
+    setCustomerProfile(normalizeCustomerProfile(profile));
+  };
+
+  const saveBulkOrderProfile = (profile) => {
+    setBulkOrderProfile(normalizeBulkOrderProfile(profile));
+  };
+
+  const repeatCustomerOrder = (order) => {
+    const orderItems = Array.isArray(order.items) ? order.items : [];
+
+    setCart((current) => {
+      const nextCart = { ...current };
+
+      orderItems.forEach((item) => {
+        const matchedProduct =
+          productMap.get(item.id) ||
+          productsList.find(
+            (product) =>
+              product.title === item.title ||
+              product.isbn === item.isbn ||
+              product.sku === item.sku,
+          );
+        const cartProduct = matchedProduct || {
+          id: item.id || item.title,
+          title: item.title || 'Book',
+          subtitle: '',
+          category: 'Book',
+          language: '',
+          publisher: '',
+          price: Number(item.price) || 0,
+          quantity: 0,
+        };
+        const quantity = Number(item.quantity) || 1;
+
+        nextCart[cartProduct.id] = {
+          ...cartProduct,
+          quantity: (nextCart[cartProduct.id]?.quantity || 0) + quantity,
+        };
+      });
+
+      return nextCart;
+    });
+    setIsCartOpen(true);
   };
 
   const syncCartProduct = (updatedProduct) => {
@@ -3870,11 +4454,22 @@ export default function App() {
 
     try {
       const createdOrder = await createOrderRecord(orderRequest);
+      const normalizedCreatedOrder = normalizeCustomerOrder(createdOrder);
       setIsCheckoutOpen(false);
       setCart({});
+      setCustomerProfile((current) =>
+        normalizeCustomerProfile({
+          ...current,
+          ...(normalizedCreatedOrder.customer || {}),
+        }),
+      );
+      setCustomerOrders((current) => [
+        normalizedCreatedOrder,
+        ...current.filter((order) => order.orderNumber !== normalizedCreatedOrder.orderNumber),
+      ].slice(0, 20));
       setOrderConfirmation({
-        ...createdOrder,
-        items: createdOrder.items.map((item) => ({ ...item })),
+        ...normalizedCreatedOrder,
+        items: normalizedCreatedOrder.items.map((item) => ({ ...item })),
       });
     } catch (error) {
       setOrderCreationError(orderCreationErrorMessage);
@@ -4088,10 +4683,24 @@ export default function App() {
           onPlaceOrder={placeOrder}
           isSubmitting={isOrderCreating}
           orderError={orderCreationError}
+          savedCustomerProfile={customerProfile}
         />
       )}
       {!isAdminRoute && isTrackOpen && <TrackOrderModal onClose={() => setIsTrackOpen(false)} />}
-      {!isAdminRoute && isAccountOpen && <AccountModal onClose={() => setIsAccountOpen(false)} />}
+      {!isAdminRoute && isAccountOpen && (
+        <AccountModal
+          onClose={() => setIsAccountOpen(false)}
+          customerProfile={customerProfile}
+          bulkOrderProfile={bulkOrderProfile}
+          wishlistProducts={wishlistProducts}
+          customerOrders={customerOrders}
+          onSaveCustomerProfile={saveCustomerProfile}
+          onSaveBulkOrderProfile={saveBulkOrderProfile}
+          onRemoveWishlist={toggleWishlist}
+          onAddToCart={addToCart}
+          onRepeatOrder={repeatCustomerOrder}
+        />
+      )}
       {!isAdminRoute && orderConfirmation && (
         <OrderConfirmationModal
           order={orderConfirmation}
