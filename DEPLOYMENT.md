@@ -28,6 +28,7 @@ Run the SQL files in this order from the Supabase SQL Editor:
 2. `supabase/patches/fix-anonymous-checkout-insert.sql`
 3. `supabase/patches/setup-product-images-storage.sql`
 4. `supabase/patches/fix-function-search-path.sql`
+5. `supabase/patches/update-client-branding-categories.sql`
 
 After running the files, verify:
 
@@ -74,6 +75,10 @@ If uploads fail in admin, confirm the storage patch was run and the admin is log
 
 ## Vercel Deployment
 
+Intended production domain: `tnkrishnaiahsetty.com`
+
+Connect this custom domain in Vercel only after the client or domain owner has provided access and the DNS records are ready. Keep preview and current deployment URLs unchanged until then.
+
 1. Push the project to GitHub.
 2. Import the repo into Vercel.
 3. Framework preset: Vite.
@@ -81,6 +86,7 @@ If uploads fail in admin, confirm the storage patch was run and the admin is log
 5. Output directory: `dist`.
 6. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel environment variables.
 7. Deploy.
+8. In Vercel Project Settings > Domains, add `tnkrishnaiahsetty.com` and follow Vercel's DNS instructions when ownership is available.
 
 After deploy, open the production URL and run the checklist below.
 

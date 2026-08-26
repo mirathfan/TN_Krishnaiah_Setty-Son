@@ -69,14 +69,14 @@ import {
 const establishedYear = 1910;
 const yearsOfLegacy = new Date().getFullYear() - establishedYear;
 
-const whatsappNumber = '919880225598';
+const whatsappNumber = '919880226598';
+// TODO(client): Replace this fallback with the original shop photo when supplied.
+const heroImagePath = '/bookstore-heritage.png';
 const businessDetails = {
-  phoneDisplay: '080 22258217',
-  phoneHref: 'tel:+918022258217',
-  mobileDisplay: '+91 98802 25598',
-  mobileHref: 'tel:+919880225598',
+  phoneDisplay: '+91 9880226598',
+  phoneHref: 'tel:+919880226598',
   email: 'tnkpublications@yahoo.com',
-  address: 'Chickpet, Bengaluru - 560 053',
+  address: 'T N Krishnaiah Setty & Son\n#234 BKG Complex,\nChickpet Main Road,\nBangalore - 560053',
   hours: 'Please call or WhatsApp before visiting',
 };
 
@@ -95,85 +95,40 @@ const orderStatusOptions = ['pending', 'confirmed', 'packed', 'shipped', 'delive
 const paymentStatusOptions = ['pending', 'paid', 'failed', 'refunded'];
 
 const categoryFilters = [
-  'Architecture / Spiritual',
-  'Astrology',
-  'Biography / Spiritual Inspiration',
-  'Children / Folklore',
-  'Childrens Story',
-  'Cooking',
-  'Devotional',
-  'Educational',
-  'General',
-  'Health',
-  'Homa / Vaidika',
-  'Literature & Fiction',
-  'Parihaara',
-  'Personality',
-  'Personality Development',
-  'Phala Jyotishya',
-  'Phalita',
+  'Bhagavadgita',
+  'Ramayana',
+  'Mahabharata',
+  'Puranas',
+  'Sahasranamas',
+  'Stotras',
   'Pooja Vidhana',
-  'Purana / Story',
-  'Religion & Spirituality',
-  'Spiritual / Occult',
-  'Story',
-  'Story / Songs / Music',
-  'Stotra',
-  'Vrata',
-  'Yantra Mantra Tantra',
+  'Vratha Vidhana',
+  'Story Books',
+  'Yogasana Books',
+  'Vastu',
+  'Chalisas',
 ];
 
 const menuGroups = [
   {
-    title: 'Scriptures & Itihasa',
+    title: 'Scriptures & Epics',
     icon: BookOpen,
-    items: [
-      'Bhagavadgita',
-      'Purana',
-      'Ramayana',
-      'Mahabharatha',
-      'Hinduism',
-      'Philosophy / Life Teachings',
-      'Short Stories (Inspirational)',
-    ],
+    items: ['Bhagavadgita', 'Ramayana', 'Mahabharata', 'Puranas'],
   },
   {
-    title: 'Pooja & Daily Practice',
+    title: 'Prayer & Practice',
     icon: BookMarked,
-    items: [
-      'Pooja',
-      'Pooja Vidhana',
-      'Ritual Practices',
-      'Stotra / Sahasranama',
-      'Vrata',
-      'Homa / Vaidika',
-      'Devi Mahatme / Shakti Worship',
-    ],
+    items: ['Sahasranamas', 'Stotras', 'Pooja Vidhana', 'Vratha Vidhana'],
   },
   {
-    title: 'Astrology & Shastra',
+    title: 'Family Reading',
     icon: Sparkles,
-    items: [
-      'Astrology',
-      'Phala Jyotishya',
-      'Phalita',
-      'Parihaara',
-      'Yantra Mantra Tantra',
-      'Tantra',
-      'Tantra Sadhana / Occult Knowledge / Mantra Shastra',
-    ],
+    items: ['Story Books', 'Chalisas'],
   },
   {
-    title: 'Learning & Family',
+    title: 'Wellness & Shastra',
     icon: LibraryBig,
-    items: [
-      'Yoga',
-      'Ayurveda',
-      'Cooking',
-      'Moral Stories / Folk Tales / Adventure Stories',
-      'Indian Saints / Motivational Literature / Spiritual Leaders',
-      'Children / Folklore',
-    ],
+    items: ['Yogasana Books', 'Vastu'],
   },
 ];
 
@@ -659,7 +614,10 @@ function Header({
                 T N Krishnaiah Setty & Son
               </span>
               <span className="block text-[11px] font-bold uppercase tracking-[0.16em] text-[#a17328]">
-                Hindu Religious Bookstore
+                Publishers and Booksellers
+              </span>
+              <span className="mt-1 block text-[10px] font-bold uppercase tracking-[0.18em] text-[#7a5a43]">
+                Estd. {establishedYear}
               </span>
             </span>
           </a>
@@ -726,7 +684,7 @@ function Header({
             <ChevronDown className={`h-4 w-4 transition ${isMegaOpen ? 'rotate-180' : ''}`} />
           </button>
           <div className="flex flex-col lg:flex-row lg:items-center">
-            {['Best Sellers', 'New Arrivals', 'Pooja & Vrata', 'Bhagavad Gita', 'Stotra', 'Astrology', 'Children', 'Gift Cards'].map((item) => (
+            {['Bhagavadgita', 'Ramayana', 'Mahabharata', 'Puranas', 'Sahasranamas', 'Stotras'].map((item) => (
               <a
                 key={item}
                 href="#catalog"
@@ -832,17 +790,18 @@ function Hero({ onCategorySelect }) {
       <div className="mx-auto grid max-w-7xl lg:grid-cols-[1fr_0.98fr]">
         <div className="relative z-10 px-4 py-10 sm:px-6 sm:py-12 lg:py-14">
           <h1 className="max-w-3xl font-serif text-[34px] font-extrabold leading-tight text-[#35110f] sm:text-5xl lg:text-6xl">
-            Sacred Books for Devotion, Study & Daily Practice
+            Publishers &amp; Booksellers Since {establishedYear}
           </h1>
+          <p className="mt-3 text-sm font-extrabold uppercase tracking-[0.2em] text-[#9b6819]">
+            Estd. {establishedYear}
+          </p>
           <p className="mt-4 max-w-2xl text-base leading-7 text-[#644535] sm:mt-5 sm:text-lg sm:leading-8">
-            Shop trusted Hindu religious books, pooja guides, stotras, scriptures,
-            astrology references, and T N K publications from a Chickpet bookstore
-            with {yearsOfLegacy}+ years of legacy.
+            With a proud legacy spanning over 120 years, we are publishers and wholesalers of multilingual books specializing in Dharmik, Religious, Philosophical, Occult Science, Vastu Shastra, Astrological, Spiritual, and General literature. Our extensive collection serves readers, booksellers, educational institutions, and libraries, reflecting our enduring commitment to knowledge, culture, tradition, and lifelong learning.
           </p>
 
           <div className="mt-6 overflow-hidden border border-[#e5d2a8] shadow-lg shadow-[#64131d]/10 lg:hidden">
             <img
-              src="/bookstore-heritage.png"
+              src={heroImagePath}
               alt="Bookstore shelves for religious and traditional books"
               className="h-28 w-full object-cover sm:h-36"
             />
@@ -877,7 +836,7 @@ function Hero({ onCategorySelect }) {
 
         <div className="relative hidden min-h-[380px] overflow-hidden border-t border-[#eadfca] lg:block lg:border-l lg:border-t-0">
           <img
-            src="/bookstore-heritage.png"
+            src={heroImagePath}
             alt="Bookstore shelves for religious and traditional books"
             className="absolute inset-0 h-full w-full object-cover"
           />
@@ -891,7 +850,7 @@ function Hero({ onCategorySelect }) {
               <button
                 key={title}
                 type="button"
-                onClick={() => onCategorySelect(title === 'Best Sellers' ? 'All Books' : title === 'Pooja Sets' ? 'Pooja Vidhana' : 'Devotional')}
+                onClick={() => onCategorySelect(title === 'Best Sellers' ? 'All Books' : title === 'Pooja Sets' ? 'Pooja Vidhana' : 'Story Books')}
                 className="border border-white/18 bg-[#fffaf0]/94 p-4 text-left shadow-xl backdrop-blur transition hover:-translate-y-0.5"
               >
                 <p className="font-serif text-lg font-bold text-[#351b12]">{title}</p>
@@ -906,7 +865,7 @@ function Hero({ onCategorySelect }) {
 }
 
 function CategoryStrip({ active, onSelect }) {
-  const shortcuts = ['All Books', 'Best Sellers', 'New Arrivals', 'Pooja Vidhana', 'Bhagavadgita', 'Stotra', 'Astrology', 'Yantra Mantra Tantra'];
+  const shortcuts = ['All Books', ...categoryFilters];
 
   return (
     <div className="scrollbar-hide flex gap-3 overflow-x-auto pb-2">
@@ -1108,9 +1067,8 @@ function Catalog({
           <div>
             <h2 className="font-serif text-3xl font-bold text-[#351b12] sm:text-4xl">Explore Our Collection</h2>
             <p className="mt-3 max-w-2xl text-base leading-7 text-[#715240]">
-              Browse categories from the reference store, refined for a full online
-              religious bookstore with filters, cart, wishlist, and direct WhatsApp
-              ordering support.
+              Browse our multilingual publishing and bookselling collection by subject,
+              language, publisher, and format.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -1257,7 +1215,7 @@ function VisitAndFooter({ onOpenTrack }) {
             <div className="mt-7 grid gap-4">
               <InfoRow icon={MapPin} title="Address" text={businessDetails.address} />
               <InfoRow icon={Clock3} title="Store Hours" text={businessDetails.hours} />
-              <InfoRow icon={PhoneCall} title="Phone" text={`${businessDetails.phoneDisplay} / ${businessDetails.mobileDisplay}`} />
+              <InfoRow icon={PhoneCall} title="Phone" text={businessDetails.phoneDisplay} />
             </div>
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -1289,9 +1247,14 @@ function VisitAndFooter({ onOpenTrack }) {
               </span>
               <p className="font-serif text-xl font-bold text-white">T N Krishnaiah Setty & Son</p>
             </div>
-            <p className="mt-4 max-w-md leading-7">
-              Hindu religious books, pooja guides, scriptures, astrology references,
-              and traditional publications from Chickpet, Bengaluru.
+            <p className="mt-3 text-xs font-bold uppercase tracking-[0.16em] text-[#f3c76a]">
+              Publishers and Booksellers · Estd. {establishedYear}
+            </p>
+            <p className="mt-4 max-w-md whitespace-pre-line leading-7">
+              {businessDetails.address}
+            </p>
+            <p className="mt-3">
+              <a href={businessDetails.phoneHref} className="font-bold text-white">{businessDetails.phoneDisplay}</a>
             </p>
           </div>
           <FooterColumn title="Shop" items={['Best Sellers', 'New Arrivals', 'Pooja & Vrata', 'Stotra', 'Astrology']} />
@@ -1316,7 +1279,7 @@ function InfoRow({ icon: Icon, title, text }) {
       <Icon className="mt-1 h-5 w-5 shrink-0 text-[#8c5f17]" />
       <div>
         <p className="font-extrabold text-[#351b12]">{title}</p>
-        <p className="mt-1 leading-7 text-[#715240]">{text}</p>
+        <p className="mt-1 whitespace-pre-line leading-7 text-[#715240]">{text}</p>
       </div>
     </div>
   );
