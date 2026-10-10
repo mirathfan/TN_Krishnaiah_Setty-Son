@@ -29,6 +29,50 @@ describe('Phase 1 runtime safety', () => {
     expect(() => assertDatabaseWriteAllowed('Testing writes')).toThrow(/read-only mode/i);
   });
 
+  it('permits checkout only with an explicit disposable local or staging acknowledgement', () => {
+    const acknowledgement = 'I_UNDERSTAND_NO_PRODUCTION_CHECKOUT';
+    const localSafety = createRuntimeSafety({
+      isDevelopment: true,
+      environment: {
+        VITE_CHECKOUT_EXECUTION_MODE: 'local',
+        VITE_CHECKOUT_DISPOSABLE_ENV_ACK: acknowledgement,
+      },
+    });
+    const stagingSafety = createRuntimeSafety({
+      isDevelopment: false,
+      environment: {
+        VITE_CHECKOUT_EXECUTION_MODE: 'staging',
+        VITE_DEPLOYMENT_ENVIRONMENT: 'staging',
+        VITE_CHECKOUT_DISPOSABLE_ENV_ACK: acknowledgement,
+      },
+    });
+
+    expect(canSubmitLiveOrder(localSafety)).toBe(true);
+    expect(canSubmitLiveOrder(stagingSafety)).toBe(true);
+    expect(canAccessAdmin(localSafety)).toBe(false);
+    expect(canAccessAdmin(stagingSafety)).toBe(false);
+  });
+
+  it('keeps production and partially configured environments fail-closed', () => {
+    const acknowledgement = 'I_UNDERSTAND_NO_PRODUCTION_CHECKOUT';
+    const attemptedProduction = createRuntimeSafety({
+      isDevelopment: false,
+      environment: {
+        VITE_CHECKOUT_EXECUTION_MODE: 'staging',
+        VITE_DEPLOYMENT_ENVIRONMENT: 'production',
+        VITE_CHECKOUT_DISPOSABLE_ENV_ACK: acknowledgement,
+      },
+    });
+    const missingAcknowledgement = createRuntimeSafety({
+      isDevelopment: true,
+      environment: { VITE_CHECKOUT_EXECUTION_MODE: 'local' },
+    });
+
+    expect(canSubmitLiveOrder(attemptedProduction)).toBe(false);
+    expect(canSubmitLiveOrder(missingAcknowledgement)).toBe(false);
+    expect(attemptedProduction.readOnly).toBe(true);
+  });
+
   it('blocks admin authentication without creating a mock session', async () => {
     expect(getAdminAuthMode()).toBe('blocked');
     await expect(getCurrentAdminSession()).resolves.toBeNull();

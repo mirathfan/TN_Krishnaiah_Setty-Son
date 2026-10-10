@@ -1,21 +1,27 @@
-const PHASE_ONE_SECURITY_LOCK = true;
+const CHECKOUT_ACKNOWLEDGEMENT = 'I_UNDERSTAND_NO_PRODUCTION_CHECKOUT';
 
 export const safeModeMessage =
   'Online ordering and live inventory are temporarily unavailable while the bookstore system is being secured.';
 
-export function createRuntimeSafety() {
-  // Phase 1 is deliberately code-locked. Re-enabling writes or admin access
-  // requires a reviewed Phase 2 code change after server-side authorization,
-  // RLS, and transactional checkout are in place.
-  const isLocked = PHASE_ONE_SECURITY_LOCK;
+export function createRuntimeSafety(options = {}) {
+  const viteEnvironment = options.environment || import.meta.env || {};
+  const checkoutMode = String(viteEnvironment.VITE_CHECKOUT_EXECUTION_MODE || '').trim();
+  const deploymentEnvironment = String(viteEnvironment.VITE_DEPLOYMENT_ENVIRONMENT || '').trim();
+  const hasExplicitAcknowledgement =
+    viteEnvironment.VITE_CHECKOUT_DISPOSABLE_ENV_ACK === CHECKOUT_ACKNOWLEDGEMENT;
+  const isDevelopmentBuild = options.isDevelopment ?? Boolean(viteEnvironment.DEV);
+  const isDisposableLocal = checkoutMode === 'local' && isDevelopmentBuild;
+  const isDisposableStaging = checkoutMode === 'staging' && deploymentEnvironment === 'staging';
+  const checkoutEnabled = hasExplicitAcknowledgement && (isDisposableLocal || isDisposableStaging);
 
   return Object.freeze({
-    phase: 'production-hardening-phase-1',
-    readOnly: isLocked,
-    useBundledPreviewCatalog: isLocked,
-    databaseWritesAllowed: false,
+    phase: 'production-hardening-phase-2b',
+    readOnly: !checkoutEnabled,
+    useBundledPreviewCatalog: !checkoutEnabled,
+    databaseWritesAllowed: checkoutEnabled,
     adminAccessAllowed: false,
-    orderSubmissionAllowed: false,
+    orderSubmissionAllowed: checkoutEnabled,
+    checkoutExecutionMode: checkoutEnabled ? checkoutMode : 'disabled',
   });
 }
 

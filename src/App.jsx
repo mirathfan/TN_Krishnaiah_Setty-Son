@@ -3093,8 +3093,10 @@ function CartDrawer({ isOpen, cartItems, onClose, onAdd, onRemove, onDelete, onC
   );
 }
 
-function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false, orderError = '', savedCustomerProfile = emptyCustomerProfile }) {
+function CheckoutModal({ cartItems, onClose, onPlaceOrder, checkoutStatus = 'idle', orderError = '', savedCustomerProfile = emptyCustomerProfile }) {
   const { subtotal, shipping, total } = getOrderTotals(cartItems);
+  const isSubmitting = checkoutStatus === 'loading';
+  const isRetryable = checkoutStatus === 'retryable_error';
   const normalizedSavedProfile = normalizeCustomerProfile(savedCustomerProfile);
   const [form, setForm] = useState({
     fullName: normalizedSavedProfile.fullName,
@@ -3106,12 +3108,15 @@ function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false,
     pincode: normalizedSavedProfile.pincode,
     notes: '',
     paymentMethod: '',
+    couponCode: '',
   });
+  const [idempotencyKey, setIdempotencyKey] = useState(() => globalThis.crypto.randomUUID());
   const [errors, setErrors] = useState({});
   const checkoutWhatsAppLink = makeWhatsAppLink(makeCartWhatsAppMessage(cartItems, form, '', form.paymentMethod));
 
   const updateField = (field, value) => {
     setForm((current) => ({ ...current, [field]: value }));
+    setIdempotencyKey(globalThis.crypto.randomUUID());
     setErrors((current) => {
       if (!current[field]) return current;
       const { [field]: removed, ...rest } = current;
@@ -3150,10 +3155,9 @@ function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false,
         notes: form.notes.trim(),
       },
       paymentMethod: form.paymentMethod,
+      couponCode: form.couponCode.trim(),
+      idempotencyKey,
       items: cartItems,
-      subtotal,
-      shipping,
-      total,
     });
   };
 
@@ -3324,6 +3328,15 @@ function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false,
                 textarea
                 className="sm:col-span-2"
               />
+              <CheckoutField
+                label="Coupon code (optional)"
+                name="couponCode"
+                value={form.couponCode}
+                onChange={updateField}
+                placeholder="Enter coupon code"
+                autoComplete="off"
+                className="sm:col-span-2"
+              />
             </div>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-center">
@@ -3333,7 +3346,7 @@ function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false,
               </a>
               <button type="submit" className="primary-button w-full sm:min-w-48" disabled={isSubmitting}>
                 <PackageCheck className="h-5 w-5" />
-                {isSubmitting ? 'Placing Order...' : 'Place Order'}
+                {isSubmitting ? 'Submitting securely...' : isRetryable ? 'Retry secure checkout' : 'Place Order'}
               </button>
             </div>
             {orderError && (
@@ -3350,6 +3363,7 @@ function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false,
             total={total}
             className="order-1 lg:order-2"
             isSubmitting={isSubmitting}
+            isRetryable={isRetryable}
           />
         </div>
 
@@ -3361,7 +3375,7 @@ function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false,
             </div>
             <button type="submit" form="checkout-form" className="primary-button min-h-12 flex-1 px-3" disabled={isSubmitting}>
               <PackageCheck className="h-5 w-5" />
-              {isSubmitting ? 'Placing...' : 'Place Order'}
+              {isSubmitting ? 'Submitting...' : isRetryable ? 'Retry checkout' : 'Place Order'}
             </button>
           </div>
         </div>
@@ -3370,7 +3384,7 @@ function CheckoutModal({ cartItems, onClose, onPlaceOrder, isSubmitting = false,
   );
 }
 
-function OrderSummaryPanel({ cartItems, subtotal, shipping, total, className = '', isSubmitting = false }) {
+function OrderSummaryPanel({ cartItems, subtotal, shipping, total, className = '', isSubmitting = false, isRetryable = false }) {
   return (
     <details open className={`border border-[#eadfca] bg-[#fffaf0] p-4 sm:p-5 ${className}`}>
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
@@ -3388,6 +3402,9 @@ function OrderSummaryPanel({ cartItems, subtotal, shipping, total, className = '
           </div>
         ))}
       </div>
+      <p className="mt-4 text-xs font-semibold leading-5 text-[#8c4b0b]">
+        This is an estimate. Current prices, stock, coupon eligibility, shipping, and the final total are verified securely when you submit.
+      </p>
       <div className="mt-5 border-t border-[#eadfca] pt-4">
         <SummaryRow label="Subtotal" value={formatPrice(subtotal)} />
         <SummaryRow label="Shipping" value={shipping ? formatPrice(shipping) : 'Free'} />
@@ -3395,7 +3412,7 @@ function OrderSummaryPanel({ cartItems, subtotal, shipping, total, className = '
       </div>
       <button type="submit" form="checkout-form" className="primary-button mt-4 w-full" disabled={isSubmitting}>
         <PackageCheck className="h-5 w-5" />
-        {isSubmitting ? 'Placing Order...' : 'Place Order'}
+        {isSubmitting ? 'Submitting securely...' : isRetryable ? 'Retry secure checkout' : 'Place Order'}
       </button>
     </details>
   );
@@ -3878,8 +3895,9 @@ function OrderConfirmationModal({ order, onClose }) {
         <p className="mt-4 text-xs font-extrabold uppercase tracking-[0.14em] text-[#9b6819]">Order request received</p>
         <h2 className="mt-2 font-serif text-3xl font-bold text-[#351b12]">{order.orderNumber}</h2>
         <p className="mx-auto mt-3 max-w-md text-sm leading-7 text-[#715240] sm:text-base">
-          Thank you. Your order request has been received. Our team will
-          contact you to confirm payment and dispatch.
+          {order.duplicate
+            ? 'This request was already received, so we reused the existing order instead of creating a duplicate.'
+            : 'Thank you. Your order request has been received. Our team will contact you to confirm payment and dispatch.'}
         </p>
       </div>
 
@@ -3936,8 +3954,6 @@ const catalogLoadErrorMessage = 'We could not load the latest catalog right now.
 const adminProductWriteErrorMessage = 'Could not save this product right now. Please check your admin session and try again.';
 const adminProductDeleteErrorMessage = 'Could not delete this product right now. Please check your admin session and try again.';
 const adminProductResetErrorMessage = 'Could not reset the catalog right now. Please check your admin session and try again.';
-const orderCreationErrorMessage = 'We could not place your order request right now. Please try again or contact us on WhatsApp.';
-
 function getAdminProductErrorMessage(error, fallbackMessage = adminProductWriteErrorMessage) {
   const message = String(error?.message || '').trim();
 
@@ -3990,8 +4006,7 @@ export default function App() {
   const [orderAdminError, setOrderAdminError] = useState('');
   const [isOrderUpdating, setIsOrderUpdating] = useState('');
   const [isAdminSaving, setIsAdminSaving] = useState(false);
-  const [isOrderCreating, setIsOrderCreating] = useState(false);
-  const [orderCreationError, setOrderCreationError] = useState('');
+  const [checkoutState, setCheckoutState] = useState({ status: 'idle', message: '' });
   const [route, setRoute] = useState(getCurrentRoute);
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [isAdminAuthLoading, setIsAdminAuthLoading] = useState(true);
@@ -4402,29 +4417,29 @@ export default function App() {
     }
 
     if (!canSubmitLiveOrder()) {
-      setOrderCreationError(safeModeMessage);
+      setCheckoutState({ status: 'validation_error', message: safeModeMessage });
       setIsCheckoutOpen(false);
       setIsCartOpen(true);
       return;
     }
 
-    setOrderCreationError('');
+    setCheckoutState({ status: 'idle', message: '' });
     setIsCartOpen(false);
     setIsCheckoutOpen(true);
   };
 
   const placeOrder = async (orderRequest) => {
     if (!canSubmitLiveOrder()) {
-      setOrderCreationError(safeModeMessage);
+      setCheckoutState({ status: 'validation_error', message: safeModeMessage });
       return;
     }
 
-    setIsOrderCreating(true);
-    setOrderCreationError('');
+    setCheckoutState({ status: 'loading', message: '' });
 
     try {
       const createdOrder = await createOrderRecord(orderRequest);
       const normalizedCreatedOrder = normalizeCustomerOrder(createdOrder);
+      setCheckoutState({ status: createdOrder.duplicate ? 'duplicate' : 'success', message: '' });
       setIsCheckoutOpen(false);
       setCart({});
       setCustomerProfile((current) =>
@@ -4442,9 +4457,10 @@ export default function App() {
         items: normalizedCreatedOrder.items.map((item) => ({ ...item })),
       });
     } catch (error) {
-      setOrderCreationError(orderCreationErrorMessage);
-    } finally {
-      setIsOrderCreating(false);
+      setCheckoutState({
+        status: error?.retryable ? 'retryable_error' : 'validation_error',
+        message: error?.message || 'We could not place your order request. Please retry or contact us on WhatsApp.',
+      });
     }
   };
 
@@ -4657,8 +4673,8 @@ export default function App() {
           cartItems={cartItems}
           onClose={() => setIsCheckoutOpen(false)}
           onPlaceOrder={placeOrder}
-          isSubmitting={isOrderCreating}
-          orderError={orderCreationError}
+          checkoutStatus={checkoutState.status}
+          orderError={checkoutState.message}
           savedCustomerProfile={customerProfile}
         />
       )}

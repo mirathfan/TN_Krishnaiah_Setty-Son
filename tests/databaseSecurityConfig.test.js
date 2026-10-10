@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 const projectFile = (relativePath) => new URL(`../${relativePath}`, import.meta.url);
 const baselinePath = 'supabase/migrations/20261010015250_baseline_bookstore_schema.sql';
 const securityPath = 'supabase/migrations/20261010015254_phase_2a_admin_authorization_rls_storage.sql';
+const checkoutPath = 'supabase/migrations/20261010023402_secure_transactional_checkout.sql';
 
 describe('Phase 2A database security configuration', () => {
   it('keeps schema creation and development seed data separate', async () => {
@@ -35,14 +36,16 @@ describe('Phase 2A database security configuration', () => {
     expect(migration).not.toMatch(/grant\s+insert[^;]+public\.(?:orders|order_items)[^;]+to\s+anon/is);
   });
 
-  it('disables local public registration and keeps Phase 1 code-locked', async () => {
+  it('disables local public registration and keeps production checkout fail-closed', async () => {
     const config = await readFile(projectFile('supabase/config.toml'), 'utf8');
     const safety = await readFile(projectFile('src/config/runtimeSafety.js'), 'utf8');
 
     expect(config).toMatch(/\[auth\][\s\S]*?enable_signup = false/);
     expect(config).toMatch(/\[auth\.email\][\s\S]*?enable_signup = true/);
     expect(config).toMatch(/enable_anonymous_sign_ins = false/);
-    expect(safety).toMatch(/const PHASE_ONE_SECURITY_LOCK = true/);
+    expect(safety).toMatch(/CHECKOUT_ACKNOWLEDGEMENT = 'I_UNDERSTAND_NO_PRODUCTION_CHECKOUT'/);
+    expect(safety).toMatch(/adminAccessAllowed: false/);
+    expect(safety).toMatch(/VITE_DEPLOYMENT_ENVIRONMENT/);
   });
 
   it('never places a service-role credential in browser code', async () => {
@@ -62,5 +65,18 @@ describe('Phase 2A database security configuration', () => {
     const clientSource = await readFile(projectFile('src/lib/supabaseClient.js'), 'utf8');
 
     expect(clientSource).toMatch(/persistSession:\s*false/);
+  });
+
+  it('keeps the Edge checkout and database RPC fail-closed', async () => {
+    const edgeFunction = await readFile(projectFile('supabase/functions/checkout/index.ts'), 'utf8');
+    const checkoutMigration = await readFile(projectFile(checkoutPath), 'utf8');
+    const config = await readFile(projectFile('supabase/config.toml'), 'utf8');
+
+    expect(config).toMatch(/\[functions\.checkout\][\s\S]*?verify_jwt = false/);
+    expect(edgeFunction).toMatch(/CHECKOUT_DISPOSABLE_ENV_ACK/);
+    expect(edgeFunction).toMatch(/CHECKOUT_DEPLOYMENT_ENVIRONMENT/);
+    expect(edgeFunction).toMatch(/context\.supabaseAdmin\.rpc\("create_checkout_order"/);
+    expect(checkoutMigration).toMatch(/revoke all on function public\.create_checkout_order[\s\S]*?from public, anon, authenticated/i);
+    expect(checkoutMigration).toMatch(/grant execute on function public\.create_checkout_order[\s\S]*?to service_role/i);
   });
 });

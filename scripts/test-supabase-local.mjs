@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 const cwd = process.cwd();
 const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
@@ -8,7 +10,6 @@ const excludedServices = [
   'mailpit',
   'postgres-meta',
   'studio',
-  'edge-runtime',
   'logflare',
   'vector',
   'supavisor',
@@ -23,6 +24,7 @@ function runSupabase(args, options = {}) {
   });
 
   if (result.status !== 0 && !options.allowFailure) {
+    if (options.capture && result.stdout) process.stderr.write(result.stdout);
     if (options.capture && result.stderr) process.stderr.write(result.stderr);
     throw new Error(`supabase ${args.join(' ')} failed with exit code ${result.status}`);
   }
@@ -35,8 +37,23 @@ function readStatusValue(status, key) {
 }
 
 let started = false;
+const functionEnvironmentPath = join(cwd, 'supabase', 'functions', '.env');
 
 try {
+  writeFileSync(
+    functionEnvironmentPath,
+    [
+      'CHECKOUT_EXECUTION_MODE=local',
+      'CHECKOUT_DEPLOYMENT_ENVIRONMENT=local',
+      'CHECKOUT_DISPOSABLE_ENV_ACK=I_UNDERSTAND_NO_PRODUCTION_CHECKOUT',
+      'CHECKOUT_ALLOWED_ORIGINS=http://127.0.0.1:5173',
+      'CHECKOUT_RATE_LIMIT_PEPPER=disposable-local-integration-tests-only',
+      'CHECKOUT_RATE_LIMIT_MAX=5',
+      'CHECKOUT_RATE_LIMIT_WINDOW_SECONDS=60',
+      '',
+    ].join('\n'),
+    { mode: 0o600 },
+  );
   console.log('Starting disposable local Supabase stack...');
   runSupabase(['start', '--exclude', excludedServices], { capture: true });
   started = true;
@@ -57,7 +74,7 @@ try {
 
   const integration = spawnSync(
     npxCommand,
-    ['vitest', 'run', 'tests/supabase.integration.test.js'],
+    ['vitest', 'run', 'tests/supabase.integration.test.js', 'tests/checkout.integration.test.js'],
     {
       cwd,
       env: {
@@ -78,4 +95,5 @@ try {
   if (started) {
     runSupabase(['stop', '--no-backup'], { allowFailure: true, capture: true });
   }
+  if (existsSync(functionEnvironmentPath)) unlinkSync(functionEnvironmentPath);
 }

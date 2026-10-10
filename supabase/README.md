@@ -1,63 +1,72 @@
-# Supabase Phase 2A Security
+# Supabase Phase 2A and 2B Security
 
 This directory is a local, migration-first description of the bookstore backend. It was prepared without linking to or contacting the inactive production project.
 
-## Safety boundary
+## Safety and migration boundary
 
 - `migrations/20261010015250_baseline_bookstore_schema.sql` creates missing bookstore tables, constraints, triggers, and indexes. It contains no catalog or order data changes.
-- `migrations/20261010015254_phase_2a_admin_authorization_rls_storage.sql` replaces application RLS policies, creates the server-managed `admin_users` allowlist, removes anonymous order writes, and secures the `product-images` bucket.
-- `seed.sql` is development-only sample data loaded after a local database reset. It is not a production migration and uses `ON CONFLICT DO NOTHING`.
-- `schema.sql` and `patches/` are legacy MVP references. They are outside the CLI migration path and must not be applied to a restored backend. In particular, the old anonymous-checkout and authenticated-storage patches are superseded by Phase 2A.
+- `migrations/20261010015254_phase_2a_admin_authorization_rls_storage.sql` creates the server-managed `admin_users` allowlist, replaces application RLS policies, removes anonymous order writes, and secures `product-images`.
+- `migrations/20261010023402_secure_transactional_checkout.sql` additively introduces checkout idempotency metadata, private rate-limit state, atomic order creation, and trusted inventory confirmation. Existing product/order UUIDs and rows are preserved.
+- `seed.sql` is development-only data loaded after a local reset. It is not a production migration.
+- `schema.sql` and `patches/` are legacy MVP references outside the CLI migration path. Do not apply them to a restored backend.
 
-The React application remains code-locked in Phase 1 read-only mode. Completing these migrations does not authorize enabling checkout or admin access in production.
+Production remains fail-closed and read-only. Checkout can run only when both frontend and Edge Function receive explicit disposable `local` or `staging` configuration plus the exact acknowledgement. Admin access remains blocked by the frontend safe-mode guard.
 
 ## Local verification
 
-Docker must be running. The integration script starts an isolated local stack, resets only that local database, runs pgTAP policy assertions, lints the local schema, exercises Auth/Data API/Storage as anonymous, non-admin, and allowlisted-admin users, and then removes the local containers and volumes.
+With Docker running:
 
 ```bash
 npm run test:supabase
 ```
 
-The script always uses `--local`; it does not use `--linked`, a project ref, or production credentials. Public registration and anonymous sign-ins are disabled in `config.toml`. The email provider remains enabled so pre-provisioned administrators can sign in, but project-wide `auth.enable_signup = false` rejects account creation. Test users are created with the disposable stack's local service-role key inside the Node test process only.
+The script uses only `--local`. It starts an isolated stack including Edge Runtime, resets only the local database, runs pgTAP policy and rollback tests, lints the schema, then exercises Auth, Data API, Storage, checkout, idempotency, privacy, rate limiting, and inventory concurrency. It removes local containers, volumes, and its temporary Function environment file afterward. It never uses `--linked`, a project ref, or production credentials.
 
-Current Supabase guidance used for this design:
+Public registration and anonymous sign-ins are disabled in `config.toml`. The local service-role key is passed only to test processes. Current implementation guidance:
 
 - [Row Level Security](https://supabase.com/docs/guides/database/postgres/row-level-security)
 - [Storage access control](https://supabase.com/docs/guides/storage/security/access-control)
-- [Public bucket behavior](https://supabase.com/docs/guides/troubleshooting/why-cant-i-uploadlistetc-my-public-bucket-Z6CmGt)
-- [`auth.getUser()` verification](https://supabase.com/docs/reference/javascript/auth-getuser)
-- [CLI configuration](https://supabase.com/docs/guides/local-development/cli/config)
+- [Edge Function authentication](https://supabase.com/docs/guides/functions/auth)
+- [Edge Function secrets](https://supabase.com/docs/guides/functions/secrets)
+- [Database functions and privileges](https://supabase.com/docs/guides/database/functions)
+- [CLI testing](https://supabase.com/docs/guides/local-development/cli/testing-and-linting)
 
-## Secure administrator provisioning after backend recovery
+## Phase 2B checkout design
 
-Do not provision an administrator until a recovered backend has been cloned to a non-production environment, migrations have been reviewed and tested there, and the Phase 1 frontend lock is still active.
+The browser calls `functions/checkout` and may submit only customer/delivery fields, product UUIDs with quantities, payment preference, optional coupon code, and an idempotency UUID. Unknown prices or totals are rejected. The Function enforces a 16 KiB body limit, strict input/origin checks, database-backed rate limiting keyed by a salted hash, and sanitized errors. Request bodies and customer data are never logged.
 
-1. In Supabase Authentication settings, disable new-user signups and keep anonymous sign-ins disabled. Leave the email provider enabled so pre-provisioned administrators can sign in. This hosted Auth setting is not controlled by a SQL migration.
-2. Create or invite the administrator from the Supabase Dashboard's Auth Users page using the person's real email. Do not add a public sign-up screen and do not share a password in source control, chat logs, or Vercel variables.
-3. Require email confirmation, a strong unique password, and MFA when the recovered project's plan/configuration supports it.
-4. Copy the administrator's UUID from Auth Users. Do not use an email address or mutable user metadata as the authorization key.
-5. As a trusted database operator in the SQL editor, insert that UUID into the allowlist:
+The Function's trusted server client invokes `public.create_checkout_order`. PostgreSQL re-reads active product prices, locks products in UUID order, validates availability/coupons, calculates subtotal/shipping/discount/final total, and writes order plus items in one transaction. An advisory lock and unique partial index serialize concurrent duplicate keys. Anonymous and ordinary authenticated roles cannot invoke checkout or inventory functions directly.
+
+Shipping is ₹60 below ₹500 and free from ₹500. Coupon status, validity dates, minimum, type, cap, and discount are server-owned.
+
+### Inventory confirmation strategy
+
+An unconfirmed request does not reserve or deduct inventory because availability and payment are manually confirmed. Once staff accepts an order, a future trusted staff/server endpoint or controlled runbook must invoke `public.confirm_order_inventory(order_id)`. It locks order/product rows in deterministic order, rechecks quantities, decrements stock once, and marks inventory/order confirmation. Concurrent confirmations cannot oversell. It does not capture or mark payment paid. Browser admin status updates are not a substitute.
+
+### Environment configuration
+
+`functions/.env.example` lists non-production Function settings. The rate-limit pepper and server credentials are secrets: configure them with Supabase secret management and never with `VITE_*`. The local runner creates its own ignored `functions/.env`.
+
+The React client requires `VITE_CHECKOUT_EXECUTION_MODE=local` in a development build, or `staging` with `VITE_DEPLOYMENT_ENVIRONMENT=staging`, plus `VITE_CHECKOUT_DISPOSABLE_ENV_ACK=I_UNDERSTAND_NO_PRODUCTION_CHECKOUT`. The Function independently requires matching server-side mode and acknowledgement. Missing or production-like configuration stays locked.
+
+## Compatibility with a recovered backend
+
+Do not apply the baseline blindly. Clone the recovered backend to disposable staging, back it up, compare its schema/constraints to the baseline, and review migrations in order. The Phase 2B migration is additive (`ADD COLUMN IF NOT EXISTS`, new schema/table/indexes/functions), but operators must still check conflicting function names, triggers, custom order-number conventions, and legacy checkout code. Never run `db reset` against a linked or hosted project.
+
+## Secure administrator provisioning
+
+After a recovered backend is tested in staging, create/invite the real administrator through Supabase Auth, require email verification and strong authentication, and copy the immutable Auth UUID. A trusted operator can allowlist it:
 
 ```sql
 begin;
-
 insert into public.admin_users (user_id)
 values ('00000000-0000-0000-0000-000000000000')
 on conflict (user_id) do nothing;
-
 commit;
 ```
 
-6. Verify that a normal authenticated test user cannot view inactive catalog rows, orders, coupons, pending reviews, or Storage object listings and cannot write any application row or Storage object.
-7. Verify that the allowlisted user can perform the intended administrative operations in staging. Keep the production UI lock active until the migration and deployment are independently reviewed.
+Normal authenticated users must then be verified unable to read or write administrative data. Never expose a secret/service-role key in browser code, Vercel variables intended for Vite, browser storage, or public CI logs.
 
-To revoke access, delete only the intended UUID from `public.admin_users`, then revoke that user's Auth sessions from the Dashboard. Browser clients cannot add, change, or remove allowlist rows.
+## Remaining production prerequisites
 
-Never place the service-role key in `VITE_*`, client code, browser storage, or a public CI variable. It is only appropriate for trusted server-side processes and disposable local tests.
-
-The prepared browser client uses an in-memory Supabase Auth session (`persistSession: false`). Admins must sign in again after a refresh; no custom or Supabase session in `localStorage` can unlock the admin UI.
-
-## Phase 2B prerequisites
-
-Checkout must remain disabled until a trusted server-side order endpoint provides schema validation, server-calculated totals, idempotency, rate limiting/abuse controls, a single database transaction for orders and items, and inventory locking/adjustment. Customer order lookup and payment processing also require explicit privacy and authorization designs before launch.
+Keep production read-only until a recovered backend and these migrations are independently reviewed in disposable staging, Function secrets and exact origin allowlists are provisioned, and a trusted inventory-confirmation workflow exists. Payment capture, customer-authenticated order lookup, cancellation/restocking rules, notifications, monitoring, rate-limit retention cleanup, and incident procedures remain future work.

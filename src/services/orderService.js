@@ -9,22 +9,6 @@ function isUuid(value) {
   return uuidPattern.test(String(value || ''));
 }
 
-function createSupabaseOrderNumber() {
-  const year = new Date().getFullYear();
-  const timestampPart = Date.now().toString(36).toUpperCase().slice(-6);
-  const bytes = new Uint8Array(2);
-
-  if (globalThis.crypto?.getRandomValues) {
-    globalThis.crypto.getRandomValues(bytes);
-  } else {
-    bytes[0] = Math.floor(Math.random() * 256);
-    bytes[1] = Math.floor(Math.random() * 256);
-  }
-
-  const randomPart = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('').toUpperCase();
-  return `TNK-${year}-${timestampPart}${randomPart}`;
-}
-
 function createClientOrderId() {
   if (globalThis.crypto?.randomUUID) {
     return globalThis.crypto.randomUUID();
@@ -83,42 +67,10 @@ function normalizeOrder(order = {}) {
     orderStatus: order.orderStatus || order.order_status || order.status || 'pending',
     paymentStatus: order.paymentStatus || order.payment_status || 'pending',
     whatsappMessage: order.whatsappMessage || order.whatsapp_message || '',
+    duplicate: order.duplicate === true,
     createdAt: order.createdAt || order.created_at || new Date().toISOString(),
     updatedAt: order.updatedAt || order.updated_at || '',
   };
-}
-
-function toSupabaseOrderPayload(orderPayload) {
-  const orderNumber = orderPayload.orderNumber || createSupabaseOrderNumber();
-  const now = new Date().toISOString();
-
-  const payload = {
-    order_number: orderNumber,
-    customer_name: orderPayload.customer?.fullName || '',
-    customer_phone: orderPayload.customer?.phone || '',
-    customer_email: orderPayload.customer?.email || null,
-    delivery_address: orderPayload.customer?.address || '',
-    city: orderPayload.customer?.city || '',
-    state: orderPayload.customer?.state || null,
-    pincode: orderPayload.customer?.pincode || '',
-    notes: orderPayload.customer?.notes || null,
-    subtotal: Number(orderPayload.subtotal) || 0,
-    shipping_fee: Number(orderPayload.shipping) || 0,
-    discount: Number(orderPayload.discount) || 0,
-    total: Number(orderPayload.total) || 0,
-    payment_method: orderPayload.paymentMethod || '',
-    order_status: orderPayload.orderStatus || 'pending',
-    payment_status: orderPayload.paymentStatus || 'pending',
-    whatsapp_message: orderPayload.whatsappMessage || null,
-    created_at: orderPayload.createdAt || now,
-    updated_at: orderPayload.updatedAt || now,
-  };
-
-  if (orderPayload.id) {
-    payload.id = orderPayload.id;
-  }
-
-  return payload;
 }
 
 function fromSupabaseOrder(order) {
@@ -138,51 +90,114 @@ export async function createOrder(orderPayload) {
     throw new Error('Online order submission is unavailable while the bookstore is in read-only mode.');
   }
 
-  const createdAt = new Date().toISOString();
-
   if (!isSupabaseConfigured || !supabase) throw new Error('Secured order storage is unavailable.');
 
-  const orderNumber = orderPayload.orderNumber || createSupabaseOrderNumber();
-  const orderId = isUuid(orderPayload.id) ? orderPayload.id : createClientOrderId();
-  const localOrder = normalizeOrder({
-    ...orderPayload,
-    id: orderId,
-    orderNumber,
-    items: (orderPayload.items || []).map((item) => ({ ...item })),
-    createdAt,
-    updatedAt: createdAt,
-  });
+  const requestBody = buildCheckoutRequest(orderPayload);
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+  const publishableKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15_000);
 
-  const { error } = await supabase
-    .from(ORDERS_TABLE)
-    .insert(toSupabaseOrderPayload({ ...orderPayload, id: orderId, orderNumber, createdAt, updatedAt: createdAt }));
+  try {
+    const response = await fetch(`${supabaseUrl}/functions/v1/checkout`, {
+      method: 'POST',
+      headers: {
+        apikey: publishableKey,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+    const responseBody = await response.json().catch(() => ({}));
 
-  throwSupabaseError(error);
+    if (!response.ok) {
+      throw new CheckoutError({
+        code: responseBody.code,
+        message: responseBody.message,
+        retryable: responseBody.retryable,
+        status: response.status,
+        requestId: responseBody.request_id,
+      });
+    }
 
+    return normalizeOrder({
+      ...responseBody,
+      customer: orderPayload.customer,
+      shipping: responseBody.shipping_fee,
+      paymentMethod: responseBody.payment_method,
+      paymentStatus: responseBody.payment_status,
+      orderStatus: responseBody.order_status,
+      createdAt: responseBody.created_at,
+      duplicate: responseBody.duplicate === true,
+    });
+  } catch (error) {
+    if (error instanceof CheckoutError) throw error;
+    if (error?.name === 'AbortError') {
+      throw new CheckoutError({
+        code: 'CHECKOUT_TIMEOUT',
+        message: 'The secure checkout timed out. Retry with the same request to avoid a duplicate order.',
+        retryable: true,
+        status: 504,
+      });
+    }
+    throw new CheckoutError({
+      code: 'CHECKOUT_NETWORK_ERROR',
+      message: 'The secure checkout could not be reached. You can retry or contact the bookstore on WhatsApp.',
+      retryable: true,
+      status: 0,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export class CheckoutError extends Error {
+  constructor({ code = 'CHECKOUT_ERROR', message, retryable = false, status = 0, requestId = '' } = {}) {
+    super(message || 'The secure checkout request failed.');
+    this.name = 'CheckoutError';
+    this.code = code;
+    this.retryable = retryable === true;
+    this.status = status;
+    this.requestId = requestId;
+  }
+}
+
+export function buildCheckoutRequest(orderPayload = {}) {
+  const idempotencyKey = isUuid(orderPayload.idempotencyKey)
+    ? orderPayload.idempotencyKey
+    : createClientOrderId();
   const items = (orderPayload.items || []).map((item) => {
-    const quantity = Number(item.quantity) || 1;
-    const price = Number(item.price) || 0;
-
+    const productId = item.dbId || item.product_id || item.id;
+    if (!isUuid(productId)) {
+      throw new CheckoutError({
+        code: 'CHECKOUT_INVALID_PRODUCT',
+        message: 'A cart product is not linked to confirmed inventory.',
+        retryable: false,
+        status: 422,
+      });
+    }
     return {
-      order_id: orderId,
-      product_id: isUuid(item.dbId || item.product_id || item.id) ? item.dbId || item.product_id || item.id : null,
-      title_snapshot: item.title || 'Book',
-      sku_snapshot: item.sku || item.isbn || item.id || null,
-      price_snapshot: price,
-      quantity,
-      line_total: price * quantity,
+      product_id: productId,
+      quantity: Number(item.quantity),
     };
   });
 
-  if (items.length) {
-    const { error: itemError } = await supabase
-      .from(ORDER_ITEMS_TABLE)
-      .insert(items);
-
-    throwSupabaseError(itemError);
-  }
-
-  return localOrder;
+  return {
+    customer: {
+      full_name: orderPayload.customer?.fullName || '',
+      phone: orderPayload.customer?.phone || '',
+      email: orderPayload.customer?.email || '',
+      address: orderPayload.customer?.address || '',
+      city: orderPayload.customer?.city || '',
+      state: orderPayload.customer?.state || '',
+      pincode: orderPayload.customer?.pincode || '',
+      notes: orderPayload.customer?.notes || '',
+    },
+    items,
+    payment_method: orderPayload.paymentMethod || '',
+    coupon_code: String(orderPayload.couponCode || '').trim().toUpperCase(),
+    idempotency_key: idempotencyKey,
+  };
 }
 
 export async function getOrders() {

@@ -2,7 +2,7 @@
 
 This guide prepares the bookstore app for production deployment on Vercel with Supabase as the backend.
 
-## Phase 1 Safety Status and Phase 2A Preparation
+## Production Safety Status and Phase 2B Preparation
 
 The application is code-locked to read-only mode during production hardening:
 
@@ -12,7 +12,9 @@ The application is code-locked to read-only mode during production hardening:
 4. Do not connect, restore, or recreate a production Supabase backend until the authorization, RLS, and transactional checkout work has been reviewed and tested.
 5. Do not add admin usernames or passwords to `VITE_*` variables. Vite exposes those variables to the browser bundle.
 
-Phase 2A now provides reviewed local migrations, an `auth.uid()`-keyed administrator allowlist, restrictive RLS, secured product-image policies, and real Supabase Auth verification code. None of it has been deployed or applied to a hosted project. Production remains in Phase 1 read-only mode until a recovered backend and a reviewed deployment are available.
+Phase 2A provides local migrations for the `auth.uid()` administrator allowlist, restrictive RLS, Storage policies, and real Supabase Auth verification. Phase 2B adds a public Edge endpoint backed by service-role-only transactional checkout and inventory operations. None of it has been deployed or applied to a hosted project. Production remains read-only until a recovered backend and reviewed staging deployment are available.
+
+The frontend and Edge Function fail closed independently. Do not set the disposable checkout mode or acknowledgement variables in production. Checkout is currently enabled only for explicitly configured local/staging verification, and frontend admin access remains blocked.
 
 ## Reserved Backend Environment Variables
 
@@ -24,6 +26,8 @@ VITE_SUPABASE_ANON_KEY=your-supabase-publishable-or-anon-key
 ```
 
 The Supabase CLI migration files under `supabase/migrations/` are now authoritative. The top-level `supabase/schema.sql` and `supabase/patches/` files are legacy MVP references and must not be applied to a restored project. They previously included broad authenticated-user policies and direct anonymous order inserts. See `supabase/README.md` for local testing and secure administrator provisioning.
+
+Phase 2B uses server-managed Function settings for allowed origins, execution mode, acknowledgement, and a secret rate-limit pepper. Supabase supplies the trusted server credential to the Edge runtime. Never add a service/secret key to `VITE_*`, browser code, or Vercel frontend variables.
 
 ## Supabase Auth Security Settings
 
@@ -77,7 +81,7 @@ Public storefront:
 4. Product detail pages load by slug.
 5. Uploaded cover and gallery images render.
 6. Cart opens and updates quantities.
-7. Checkout submission is disabled and explains that totals are previews.
+7. Checkout submission remains disabled in production and explains that totals are previews.
 8. WhatsApp cart handoff remains available for confirmation.
 9. Preview products are clearly labeled as unconfirmed inventory.
 
@@ -92,9 +96,14 @@ Security:
 
 1. Anonymous product create/update/delete is blocked.
 2. Anonymous image upload/update/delete is blocked.
-3. Anonymous checkout insert is not attempted in Phase 1 and is denied by Phase 2A RLS.
+3. Anonymous direct order inserts and direct checkout RPC calls are denied; the production Edge checkout gate remains disabled.
 4. No Supabase client is instantiated by the Phase 1 read-only build.
 5. Phase 2A migrations and local integration tests must be reviewed and rerun against a disposable staging clone before any backend restoration or production deployment.
+6. Phase 2B checkout tests must pass there, including idempotency, rollback, privacy, rate limiting, and concurrent inventory confirmation.
+
+## Manual confirmation and inventory
+
+An order request is not a completed sale and does not capture payment or reserve stock. After staff verifies availability/payment, a trusted server-side process must call `confirm_order_inventory` when accepting the order. It rechecks and atomically commits stock so concurrent confirmations cannot oversell. The current browser admin status controls are not an authorized substitute and remain blocked.
 
 ## Manual QA Data Cleanup
 
