@@ -218,6 +218,32 @@ with check (
 
 -- Product images are downloadable through public bucket URLs. Object listing,
 -- upload, replacement, and deletion require allowlisted admin membership.
+-- Fail instead of silently changing an existing bucket whose recovered
+-- configuration differs. Such a project needs an operator-reviewed bridge
+-- migration after its existing objects and MIME types have been inventoried.
+do $product_images_bucket_compatibility$
+declare
+  existing_bucket storage.buckets%rowtype;
+begin
+  select *
+  into existing_bucket
+  from storage.buckets
+  where id = 'product-images';
+
+  if found and (
+    existing_bucket.public is distinct from true
+    or existing_bucket.file_size_limit is distinct from 5242880
+    or existing_bucket.allowed_mime_types is distinct from
+      array['image/jpeg', 'image/png', 'image/webp']::text[]
+  ) then
+    raise exception using
+      errcode = 'P0001',
+      message = 'PHASE2A_PRODUCT_IMAGES_BUCKET_REVIEW_REQUIRED',
+      hint = 'Inventory the recovered product-images bucket and prepare an operator-reviewed bridge migration.';
+  end if;
+end
+$product_images_bucket_compatibility$;
+
 insert into storage.buckets (
   id,
   name,
@@ -232,14 +258,12 @@ values (
   5242880,
   array['image/jpeg', 'image/png', 'image/webp']::text[]
 )
-on conflict (id) do update set
-  public = excluded.public,
-  file_size_limit = excluded.file_size_limit,
-  allowed_mime_types = excluded.allowed_mime_types;
+on conflict (id) do nothing;
 
--- This project uses Storage only for product images. Replacing all object
--- policies prevents an unknown legacy broad-authenticated policy from keeping
--- this bucket writable. Stored objects themselves are not changed.
+-- Remove only known legacy and current product-image policies. Never erase
+-- policies belonging to unrelated recovered buckets. The following guard then
+-- refuses to continue if an unknown policy could still expose product-images
+-- or grants a broad anon/authenticated Storage rule.
 do $storage_policy_cleanup$
 declare
   existing_policy record;
@@ -249,6 +273,16 @@ begin
     from pg_policies
     where schemaname = 'storage'
       and tablename = 'objects'
+      and policyname = any (array[
+        'Public can read product images',
+        'Authenticated users can upload product images',
+        'Authenticated users can update product images',
+        'Authenticated users can delete product images',
+        'Authorized admins can list product images',
+        'Authorized admins can upload product images',
+        'Authorized admins can update product images',
+        'Authorized admins can delete product images'
+      ])
   loop
     execute format(
       'drop policy %I on %I.%I',
@@ -259,6 +293,35 @@ begin
   end loop;
 end
 $storage_policy_cleanup$;
+
+do $storage_policy_compatibility$
+declare
+  conflicting_policies text;
+begin
+  select string_agg(policyname, ', ' order by policyname)
+  into conflicting_policies
+  from pg_policies
+  where schemaname = 'storage'
+    and tablename = 'objects'
+    and roles && array['public', 'anon', 'authenticated']::name[]
+    and (
+      coalesce(qual, '') ilike '%product-images%'
+      or coalesce(with_check, '') ilike '%product-images%'
+      or (
+        coalesce(qual, '') not ilike '%bucket_id%'
+        and coalesce(with_check, '') not ilike '%bucket_id%'
+      )
+    );
+
+  if conflicting_policies is not null then
+    raise exception using
+      errcode = 'P0001',
+      message = 'PHASE2A_STORAGE_POLICY_REVIEW_REQUIRED',
+      detail = conflicting_policies,
+      hint = 'Review and replace only the conflicting recovered Storage policies before retrying.';
+  end if;
+end
+$storage_policy_compatibility$;
 
 create policy "Authorized admins can list product images"
 on storage.objects

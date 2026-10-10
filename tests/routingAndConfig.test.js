@@ -43,6 +43,15 @@ describe('Vercel production configuration', () => {
     expect(headers['Referrer-Policy']).toBe('strict-origin-when-cross-origin');
     expect(headers['Permissions-Policy']).toContain('payment=()');
   });
+
+  it('refuses Vercel previews that point at the original production backend', async () => {
+    const viteConfig = await readFile(projectFile('vite.config.js'), 'utf8');
+
+    expect(viteConfig).toMatch(/vercelEnvironment === 'preview'/);
+    expect(viteConfig).toMatch(/originalProductionProjectRef/);
+    expect(viteConfig).toMatch(/Refusing to build a Vercel preview/);
+    expect(viteConfig).toMatch(/BUILD_HOST_ENVIRONMENT/);
+  });
 });
 
 describe('client-side secret and sensitive-storage regression checks', () => {

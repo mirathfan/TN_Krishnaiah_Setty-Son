@@ -18,6 +18,13 @@ create unique index if not exists orders_idempotency_key_idx
   on public.orders(idempotency_key)
   where idempotency_key is not null;
 
+-- Checkout normalizes coupon input to upper case. Enforce the same uniqueness
+-- rule in PostgreSQL so differently cased legacy rows can never produce an
+-- ambiguous discount. A recovered database with collisions must stop here and
+-- be reconciled explicitly rather than choosing a coupon nondeterministically.
+create unique index if not exists coupons_code_upper_idx
+  on public.coupons(pg_catalog.upper(code));
+
 create sequence if not exists private.checkout_order_number_seq;
 revoke all on sequence private.checkout_order_number_seq from public, anon, authenticated;
 grant usage, select on sequence private.checkout_order_number_seq to service_role;
@@ -458,7 +465,7 @@ set search_path = ''
 as $$
 declare
   order_row public.orders%rowtype;
-  order_line public.order_items%rowtype;
+  inventory_line record;
   product_row public.products%rowtype;
 begin
   perform pg_catalog.set_config('lock_timeout', '5s', true);
@@ -492,26 +499,27 @@ begin
     raise exception using message = 'CHECKOUT_INVALID_ITEMS';
   end if;
 
-  for order_line in
-    select line.*
+  for inventory_line in
+    select line.product_id, pg_catalog.sum(line.quantity)::integer as quantity
     from public.order_items as line
     where line.order_id = order_row.id
+    group by line.product_id
     order by line.product_id
   loop
-    if order_line.product_id is null then
+    if inventory_line.product_id is null then
       raise exception using message = 'CHECKOUT_PRODUCT_UNAVAILABLE';
     end if;
 
     select * into product_row
     from public.products
-    where id = order_line.product_id
+    where id = inventory_line.product_id
     for update;
 
     if not found or product_row.is_active is not true then
       raise exception using message = 'CHECKOUT_PRODUCT_UNAVAILABLE';
     end if;
 
-    if product_row.stock_quantity < order_line.quantity then
+    if product_row.stock_quantity < inventory_line.quantity then
       raise exception using message = 'CHECKOUT_OUT_OF_STOCK';
     end if;
   end loop;
@@ -522,8 +530,13 @@ begin
         when product.stock_quantity - line.quantity <= 0 then 'out_of_stock'
         else product.stock_status
       end
-  from public.order_items as line
-  where line.order_id = order_row.id
+  from (
+    select item.product_id, pg_catalog.sum(item.quantity)::integer as quantity
+    from public.order_items as item
+    where item.order_id = order_row.id
+    group by item.product_id
+  ) as line
+  where line.product_id is not null
     and line.product_id = product.id;
 
   update public.orders

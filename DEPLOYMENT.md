@@ -2,7 +2,7 @@
 
 This guide prepares the bookstore app for production deployment on Vercel with Supabase as the backend.
 
-## Production Safety Status and Phase 2B Preparation
+## Production Safety Status and Phase 3A Preparation
 
 The application is code-locked to read-only mode during production hardening:
 
@@ -14,11 +14,13 @@ The application is code-locked to read-only mode during production hardening:
 
 Phase 2A provides local migrations for the `auth.uid()` administrator allowlist, restrictive RLS, Storage policies, and real Supabase Auth verification. Phase 2B adds a public Edge endpoint backed by service-role-only transactional checkout and inventory operations. None of it has been deployed or applied to a hosted project. Production remains read-only until a recovered backend and reviewed staging deployment are available.
 
+The authoritative readiness, rollback, recovery, compatibility, and checkout-review runbook is [`docs/PHASE_3A_READINESS.md`](docs/PHASE_3A_READINESS.md). Do not deploy or restore from this repository until that checklist has been reviewed and explicit authorization has been given.
+
 The frontend and Edge Function fail closed independently. Do not set the disposable checkout mode or acknowledgement variables in production. Checkout is currently enabled only for explicitly configured local/staging verification, and frontend admin access remains blocked.
 
 ## Reserved Backend Environment Variables
 
-These variables are reserved for the future secured backend. The Phase 1 read-only build does not use them for catalog loading or writes, and this hardening work does not require changing existing Vercel values:
+These variables are reserved for a future secured backend. The Phase 1 read-only build does not use them for catalog loading or writes. Prefer leaving both unset for the read-only deployment:
 
 ```bash
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
@@ -65,7 +67,7 @@ Connect this custom domain in Vercel only after the client or domain owner has p
 3. Framework preset: Vite.
 4. Build command: `npm run build`.
 5. Output directory: `dist`.
-6. Add `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` in Vercel environment variables.
+6. Keep `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, and every `VITE_CHECKOUT_*` variable unset for the read-only deployment.
 7. Deploy.
 8. In Vercel Project Settings > Domains, add `tnkrishnaiahsetty.com` and follow Vercel's DNS instructions when ownership is available.
 
@@ -76,8 +78,8 @@ After deploy, open the production URL and run the checklist below.
 Public storefront:
 
 1. Homepage loads.
-2. Product listing loads from Supabase.
-3. Inactive products are hidden.
+2. Product listing loads from the clearly labeled bundled preview catalog, with no Supabase network request.
+3. Inventory, price, and availability are labeled unconfirmed.
 4. Product detail pages load by slug.
 5. Uploaded cover and gallery images render.
 6. Cart opens and updates quantities.

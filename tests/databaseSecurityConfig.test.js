@@ -36,6 +36,17 @@ describe('Phase 2A database security configuration', () => {
     expect(migration).not.toMatch(/grant\s+insert[^;]+public\.(?:orders|order_items)[^;]+to\s+anon/is);
   });
 
+  it('preserves unrelated Storage policies and fails closed on unknown broad policies', async () => {
+    const migration = await readFile(projectFile(securityPath), 'utf8');
+    const cleanup = migration.match(/do \$storage_policy_cleanup\$[\s\S]+?\$storage_policy_cleanup\$;/i)?.[0] || '';
+
+    expect(cleanup).toMatch(/policyname = any/i);
+    expect(cleanup).toMatch(/Public can read product images/i);
+    expect(migration).toMatch(/PHASE2A_STORAGE_POLICY_REVIEW_REQUIRED/);
+    expect(migration).toMatch(/PHASE2A_PRODUCT_IMAGES_BUCKET_REVIEW_REQUIRED/);
+    expect(migration).toMatch(/array\['public', 'anon', 'authenticated'\]::name\[\]/);
+  });
+
   it('disables local public registration and keeps production checkout fail-closed', async () => {
     const config = await readFile(projectFile('supabase/config.toml'), 'utf8');
     const safety = await readFile(projectFile('src/config/runtimeSafety.js'), 'utf8');
@@ -46,6 +57,8 @@ describe('Phase 2A database security configuration', () => {
     expect(safety).toMatch(/CHECKOUT_ACKNOWLEDGEMENT = 'I_UNDERSTAND_NO_PRODUCTION_CHECKOUT'/);
     expect(safety).toMatch(/adminAccessAllowed: false/);
     expect(safety).toMatch(/VITE_DEPLOYMENT_ENVIRONMENT/);
+    expect(safety).toMatch(/VITE_CHECKOUT_ALLOWED_PROJECT_REF/);
+    expect(safety).not.toMatch(/options\.environment \|\| import\.meta\.env/);
   });
 
   it('never places a service-role credential in browser code', async () => {
@@ -75,6 +88,7 @@ describe('Phase 2A database security configuration', () => {
     expect(config).toMatch(/\[functions\.checkout\][\s\S]*?verify_jwt = false/);
     expect(edgeFunction).toMatch(/CHECKOUT_DISPOSABLE_ENV_ACK/);
     expect(edgeFunction).toMatch(/CHECKOUT_DEPLOYMENT_ENVIRONMENT/);
+    expect(edgeFunction).toMatch(/DENO_DEPLOYMENT_ID/);
     expect(edgeFunction).toMatch(/context\.supabaseAdmin\.rpc\("create_checkout_order"/);
     expect(checkoutMigration).toMatch(/revoke all on function public\.create_checkout_order[\s\S]*?from public, anon, authenticated/i);
     expect(checkoutMigration).toMatch(/grant execute on function public\.create_checkout_order[\s\S]*?to service_role/i);

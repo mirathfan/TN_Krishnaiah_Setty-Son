@@ -107,6 +107,10 @@ describeLocal('Phase 2B secure transactional checkout integration', () => {
         slug: `${prefix}-concurrent`, title: `${prefix} concurrent`, sku: `${prefix}-concurrent`,
         price: 300, stock_status: 'in_stock', stock_quantity: 1, is_active: true,
       },
+      {
+        slug: `${prefix}-aggregate`, title: `${prefix} aggregate`, sku: `${prefix}-aggregate`,
+        price: 150, stock_status: 'in_stock', stock_quantity: 3, is_active: true,
+      },
     ]).select('*'), 'create checkout products');
 
     const bySlug = Object.fromEntries(products.map((product) => [product.slug.split('-').at(-1), product]));
@@ -260,6 +264,45 @@ describeLocal('Phase 2B secure transactional checkout integration', () => {
       'read confirmed orders',
     );
     expect(orders.filter((order) => order.inventory_committed_at)).toHaveLength(1);
+  });
+
+  it('aggregates duplicate legacy line items before committing inventory', async () => {
+    const order = expectSuccess(await serviceClient.from('orders').insert({
+      order_number: `TNK-P2B-LEGACY-${randomUUID()}`,
+      customer_name: 'Phase 2B Local Customer',
+      customer_phone: '+91 9880226598',
+      customer_email: 'phase2b@example.test',
+      delivery_address: '234 BKG Complex, Chickpet Main Road',
+      city: 'Bangalore',
+      state: 'Karnataka',
+      pincode: '560053',
+      subtotal: 300,
+      shipping_fee: 60,
+      discount: 0,
+      total: 360,
+      payment_method: 'upi',
+      order_status: 'pending_confirmation',
+    }).select('*').single(), 'create legacy duplicate-line order');
+    expectSuccess(await serviceClient.from('order_items').insert([
+      {
+        order_id: order.id, product_id: fixtures.aggregate.id, title_snapshot: fixtures.aggregate.title,
+        price_snapshot: 150, quantity: 1, line_total: 150,
+      },
+      {
+        order_id: order.id, product_id: fixtures.aggregate.id, title_snapshot: fixtures.aggregate.title,
+        price_snapshot: 150, quantity: 1, line_total: 150,
+      },
+    ]).select('id'), 'create duplicate legacy lines');
+
+    expectSuccess(
+      await serviceClient.rpc('confirm_order_inventory', { p_order_id: order.id }),
+      'confirm duplicate-line legacy order',
+    );
+    const product = expectSuccess(
+      await serviceClient.from('products').select('stock_quantity').eq('id', fixtures.aggregate.id).single(),
+      'read aggregate stock',
+    );
+    expect(product.stock_quantity).toBe(1);
   });
 
   it('rate limits repeated attempts and returns safe structured errors', async () => {

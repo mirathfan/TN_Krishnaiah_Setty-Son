@@ -36,6 +36,7 @@ describe('Phase 1 runtime safety', () => {
       environment: {
         VITE_CHECKOUT_EXECUTION_MODE: 'local',
         VITE_CHECKOUT_DISPOSABLE_ENV_ACK: acknowledgement,
+        VITE_SUPABASE_URL: 'http://127.0.0.1:57321',
       },
     });
     const stagingSafety = createRuntimeSafety({
@@ -44,6 +45,8 @@ describe('Phase 1 runtime safety', () => {
         VITE_CHECKOUT_EXECUTION_MODE: 'staging',
         VITE_DEPLOYMENT_ENVIRONMENT: 'staging',
         VITE_CHECKOUT_DISPOSABLE_ENV_ACK: acknowledgement,
+        VITE_CHECKOUT_ALLOWED_PROJECT_REF: 'disposable-staging-ref',
+        VITE_SUPABASE_URL: 'https://disposable-staging-ref.supabase.co',
       },
     });
 
@@ -61,6 +64,8 @@ describe('Phase 1 runtime safety', () => {
         VITE_CHECKOUT_EXECUTION_MODE: 'staging',
         VITE_DEPLOYMENT_ENVIRONMENT: 'production',
         VITE_CHECKOUT_DISPOSABLE_ENV_ACK: acknowledgement,
+        VITE_CHECKOUT_ALLOWED_PROJECT_REF: 'sxdfjtcbfpmwdwtgouea',
+        VITE_SUPABASE_URL: 'https://sxdfjtcbfpmwdwtgouea.supabase.co',
       },
     });
     const missingAcknowledgement = createRuntimeSafety({
@@ -71,6 +76,48 @@ describe('Phase 1 runtime safety', () => {
     expect(canSubmitLiveOrder(attemptedProduction)).toBe(false);
     expect(canSubmitLiveOrder(missingAcknowledgement)).toBe(false);
     expect(attemptedProduction.readOnly).toBe(true);
+  });
+
+  it('keeps a Vercel production build locked if staging variables are copied into it', () => {
+    const safety = createRuntimeSafety({
+      isDevelopment: false,
+      environment: {
+        BUILD_HOST_ENVIRONMENT: 'production',
+        VITE_CHECKOUT_EXECUTION_MODE: 'staging',
+        VITE_DEPLOYMENT_ENVIRONMENT: 'staging',
+        VITE_CHECKOUT_DISPOSABLE_ENV_ACK: 'I_UNDERSTAND_NO_PRODUCTION_CHECKOUT',
+        VITE_CHECKOUT_ALLOWED_PROJECT_REF: 'disposable-staging-ref',
+        VITE_SUPABASE_URL: 'https://disposable-staging-ref.supabase.co',
+      },
+    });
+
+    expect(safety.readOnly).toBe(true);
+    expect(canSubmitLiveOrder(safety)).toBe(false);
+  });
+
+  it('rejects production backends and remote URLs in disposable local mode', () => {
+    const acknowledgement = 'I_UNDERSTAND_NO_PRODUCTION_CHECKOUT';
+    const localModeWithRemoteBackend = createRuntimeSafety({
+      isDevelopment: true,
+      environment: {
+        VITE_CHECKOUT_EXECUTION_MODE: 'local',
+        VITE_CHECKOUT_DISPOSABLE_ENV_ACK: acknowledgement,
+        VITE_SUPABASE_URL: 'https://sxdfjtcbfpmwdwtgouea.supabase.co',
+      },
+    });
+    const stagingModeWithProductionBackend = createRuntimeSafety({
+      isDevelopment: false,
+      environment: {
+        VITE_CHECKOUT_EXECUTION_MODE: 'staging',
+        VITE_DEPLOYMENT_ENVIRONMENT: 'staging',
+        VITE_CHECKOUT_DISPOSABLE_ENV_ACK: acknowledgement,
+        VITE_CHECKOUT_ALLOWED_PROJECT_REF: 'sxdfjtcbfpmwdwtgouea',
+        VITE_SUPABASE_URL: 'https://sxdfjtcbfpmwdwtgouea.supabase.co',
+      },
+    });
+
+    expect(canSubmitLiveOrder(localModeWithRemoteBackend)).toBe(false);
+    expect(canSubmitLiveOrder(stagingModeWithProductionBackend)).toBe(false);
   });
 
   it('blocks admin authentication without creating a mock session', async () => {

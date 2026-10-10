@@ -8,6 +8,7 @@ const ALLOWED_PAYMENT_METHODS = new Set(["upi", "online", "cod", "whatsapp"]);
 const ROOT_KEYS = new Set(["customer", "items", "payment_method", "coupon_code", "idempotency_key"]);
 const CUSTOMER_KEYS = new Set(["full_name", "phone", "email", "address", "city", "state", "pincode", "notes"]);
 const ITEM_KEYS = new Set(["product_id", "quantity"]);
+const ORIGINAL_PRODUCTION_PROJECT_REF = "sxdfjtcbfpmwdwtgouea";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -76,8 +77,22 @@ function assertExecutionMode(): "local" | "staging" {
   const mode = env("CHECKOUT_EXECUTION_MODE");
   const acknowledgement = env("CHECKOUT_DISPOSABLE_ENV_ACK");
   const deploymentEnvironment = env("CHECKOUT_DEPLOYMENT_ENVIRONMENT");
-  const isLocal = mode === "local" && deploymentEnvironment === "local";
-  const isStaging = mode === "staging" && deploymentEnvironment === "staging";
+  const allowedProjectRef = env("CHECKOUT_ALLOWED_PROJECT_REF");
+  const hostedDeploymentId = env("DENO_DEPLOYMENT_ID");
+  const hostedProjectRef = hostedDeploymentId.split("_")[0] || "";
+  const projectRef = (() => {
+    try {
+      const hostname = new URL(env("SUPABASE_URL")).hostname;
+      return hostname.endsWith(".supabase.co") ? hostname.slice(0, -".supabase.co".length) : "";
+    } catch {
+      return "";
+    }
+  })();
+  const isLocal = mode === "local" && deploymentEnvironment === "local" && !hostedDeploymentId;
+  const isStaging = mode === "staging" && deploymentEnvironment === "staging" &&
+    Boolean(hostedDeploymentId) && hostedProjectRef === allowedProjectRef &&
+    projectRef === allowedProjectRef &&
+    projectRef !== ORIGINAL_PRODUCTION_PROJECT_REF;
   if ((!isLocal && !isStaging) || acknowledgement !== "I_UNDERSTAND_NO_PRODUCTION_CHECKOUT") {
     throw new CheckoutHttpError(
       503,

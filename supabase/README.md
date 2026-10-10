@@ -53,6 +53,14 @@ The React client requires `VITE_CHECKOUT_EXECUTION_MODE=local` in a development 
 
 Do not apply the baseline blindly. Clone the recovered backend to disposable staging, back it up, compare its schema/constraints to the baseline, and review migrations in order. The Phase 2B migration is additive (`ADD COLUMN IF NOT EXISTS`, new schema/table/indexes/functions), but operators must still check conflicting function names, triggers, custom order-number conventions, and legacy checkout code. Never run `db reset` against a linked or hosted project.
 
+Phase 3A recovery tooling lives in `recovery/`. All three scripts start a read-only transaction and are intended only for an isolated local restore:
+
+- `inventory-restored-database.sql` inventories schema, RLS, grants, functions, triggers, publications, background jobs, stable application identifiers, Auth counts, and Storage metadata without printing customer contact data.
+- `preflight-compatibility.sql` reports structural gaps, duplicate business keys, invalid values, orphans, policy/function conflicts, background integrations, and the product-image bucket contract.
+- `reconcile-restored-database.sql` captures row counts and non-PII identity digests before and after a candidate bridge migration.
+
+See `../docs/PHASE_3A_READINESS.md` for the required backup/object export, background-job isolation, custom bridge migration, reconciliation, and rollback procedure.
+
 ## Secure administrator provisioning
 
 After a recovered backend is tested in staging, create/invite the real administrator through Supabase Auth, require email verification and strong authentication, and copy the immutable Auth UUID. A trusted operator can allowlist it:

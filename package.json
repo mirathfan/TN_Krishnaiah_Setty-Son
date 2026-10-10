@@ -5,14 +5,16 @@
   "private": true,
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && node scripts/audit-production-bundle.mjs",
+    "audit:bundle": "node scripts/audit-production-bundle.mjs",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
     "test:supabase": "node scripts/test-supabase-local.mjs",
     "test:watch": "vitest",
     "verify": "npm run test && npm run build",
     "verify:phase2a": "npm run test && npm run test:supabase && npm run build && npm audit --omit=dev",
-    "verify:phase2b": "npm run test && npm run test:supabase && npm run build && npm audit --omit=dev"
+    "verify:phase2b": "npm run test && npm run test:supabase && npm run build && npm audit --omit=dev",
+    "verify:phase3a": "npm run test && npm run test:supabase && npm run build && npm audit --omit=dev"
   },
   "keywords": [],
   "author": "",

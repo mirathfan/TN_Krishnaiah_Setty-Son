@@ -3,7 +3,7 @@ begin;
 create extension if not exists pgtap with schema extensions;
 set local search_path = extensions, public, pg_catalog;
 
-select plan(16);
+select plan(17);
 
 select has_column('public', 'orders', 'idempotency_key', 'orders have an additive idempotency key');
 select has_column('public', 'orders', 'request_fingerprint', 'orders retain a request fingerprint');
@@ -52,6 +52,16 @@ select ok(
       and indexdef ilike '%unique%'
   ),
   'idempotency is protected by a unique database index'
+);
+
+select ok(
+  exists (
+    select 1 from pg_indexes
+    where schemaname = 'public'
+      and indexname = 'coupons_code_upper_idx'
+      and indexdef ilike '%unique%'
+  ),
+  'coupon codes are unique under checkout case normalization'
 );
 
 insert into public.products (
