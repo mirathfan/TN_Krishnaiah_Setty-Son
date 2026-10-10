@@ -20,5 +20,12 @@ export const isSupabaseConfigured = Boolean(
 );
 
 export const supabase = isSupabaseConfigured
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        // Admin sessions stay in memory only. A browser refresh requires a new
+        // login, and no localStorage value can preserve or grant admin access.
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
+    })
   : null;

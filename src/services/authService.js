@@ -1,5 +1,6 @@
 import { canAccessAdmin } from '../config/runtimeSafety';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
+import { getAuthorizedAdminUser } from './adminAuthorization';
 
 const adminUnavailableMessage =
   'Admin access is temporarily unavailable while server-side authorization is being secured.';
@@ -37,6 +38,19 @@ export async function getCurrentAdminSession() {
     return null;
   }
 
+  let adminUser;
+
+  try {
+    adminUser = await getAuthorizedAdminUser(supabase);
+  } catch (error) {
+    throw new Error(getSafeAuthErrorMessage(error));
+  }
+
+  if (!adminUser) {
+    await supabase.auth.signOut({ scope: 'local' });
+    return null;
+  }
+
   const { data, error } = await supabase.auth.getSession();
 
   if (error) {
@@ -50,7 +64,18 @@ export function onAdminAuthStateChange(callback) {
   if (!canAccessAdmin() || !isSupabaseConfigured || !supabase) return () => {};
 
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-    callback(session || null);
+    if (!session) {
+      callback(null);
+      return;
+    }
+
+    // Supabase recommends keeping auth-state callbacks synchronous. Verify the
+    // user and allowlist membership immediately after the callback completes.
+    globalThis.setTimeout(() => {
+      getCurrentAdminSession()
+        .then((verifiedSession) => callback(verifiedSession))
+        .catch(() => callback(null));
+    }, 0);
   });
 
   return () => {
@@ -84,6 +109,20 @@ export async function signInAdmin({ email = '', password = '' }) {
 
   if (!data?.session) {
     throw new Error('Could not start an admin session. Please try again.');
+  }
+
+  let adminUser;
+
+  try {
+    adminUser = await getAuthorizedAdminUser(supabase);
+  } catch (authorizationError) {
+    await supabase.auth.signOut({ scope: 'local' });
+    throw new Error(getSafeAuthErrorMessage(authorizationError));
+  }
+
+  if (!adminUser) {
+    await supabase.auth.signOut({ scope: 'local' });
+    throw new Error('Permission denied. This account is not an authorized bookstore administrator.');
   }
 
   return data.session;

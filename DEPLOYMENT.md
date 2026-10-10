@@ -2,7 +2,7 @@
 
 This guide prepares the bookstore app for production deployment on Vercel with Supabase as the backend.
 
-## Phase 1 Safety Status
+## Phase 1 Safety Status and Phase 2A Preparation
 
 The application is code-locked to read-only mode during production hardening:
 
@@ -11,6 +11,8 @@ The application is code-locked to read-only mode during production hardening:
 3. Database writes, checkout submission, image writes, and admin access are blocked.
 4. Do not connect, restore, or recreate a production Supabase backend until the authorization, RLS, and transactional checkout work has been reviewed and tested.
 5. Do not add admin usernames or passwords to `VITE_*` variables. Vite exposes those variables to the browser bundle.
+
+Phase 2A now provides reviewed local migrations, an `auth.uid()`-keyed administrator allowlist, restrictive RLS, secured product-image policies, and real Supabase Auth verification code. None of it has been deployed or applied to a hosted project. Production remains in Phase 1 read-only mode until a recovered backend and a reviewed deployment are available.
 
 ## Reserved Backend Environment Variables
 
@@ -21,31 +23,32 @@ VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your-supabase-publishable-or-anon-key
 ```
 
-The existing SQL files document the previous MVP and must not be applied to production as-is. They contain broad authenticated-user policies and direct anonymous order inserts that are intentionally blocked by the Phase 1 frontend.
+The Supabase CLI migration files under `supabase/migrations/` are now authoritative. The top-level `supabase/schema.sql` and `supabase/patches/` files are legacy MVP references and must not be applied to a restored project. They previously included broad authenticated-user policies and direct anonymous order inserts. See `supabase/README.md` for local testing and secure administrator provisioning.
 
-## Supabase Auth Security Setting
+## Supabase Auth Security Settings
 
-Enable leaked-password protection in Supabase:
+Before any restored project is connected to the frontend:
 
 1. Open Supabase Dashboard.
-2. Go to Authentication > Settings > Security.
-3. Enable leaked password protection.
-4. Save changes.
+2. Disable new-user signups and keep anonymous sign-ins disabled. Leave the email provider enabled for pre-provisioned administrators.
+3. Go to Authentication > Settings > Security.
+4. Enable leaked password protection and MFA where available.
+5. Save changes.
 
 This is a dashboard Auth setting, not a Vite frontend code setting.
 
 ## Product Image Storage
 
-The `setup-product-images-storage.sql` patch creates a public bucket named `product-images`.
+The Phase 2A security migration creates a public bucket named `product-images`.
 
 Expected behavior:
 
 1. Public image URLs are readable by customers.
 2. Phase 1 blocks all image upload, update, and delete operations in the frontend.
-3. Anonymous users cannot upload, update, or delete images.
-4. There is no broad anonymous `storage.objects` SELECT policy for listing the bucket.
+3. Anonymous and ordinary authenticated users cannot list, upload, update, or delete images.
+4. Only an `admin_users` allowlisted Supabase Auth user can list or write objects under `products/`.
 
-If uploads fail in admin, confirm the storage patch was run and the admin is logged in through Supabase Auth.
+If uploads fail in a future staging admin, confirm the Phase 2A migration was applied and the verified Auth UUID was provisioned in `public.admin_users` by a trusted operator.
 
 ## Vercel Deployment
 
@@ -89,9 +92,9 @@ Security:
 
 1. Anonymous product create/update/delete is blocked.
 2. Anonymous image upload/update/delete is blocked.
-3. Anonymous checkout insert is not attempted in Phase 1.
+3. Anonymous checkout insert is not attempted in Phase 1 and is denied by Phase 2A RLS.
 4. No Supabase client is instantiated by the Phase 1 read-only build.
-5. Database RLS and advisor verification remains a Phase 2 blocker before backend restoration.
+5. Phase 2A migrations and local integration tests must be reviewed and rerun against a disposable staging clone before any backend restoration or production deployment.
 
 ## Manual QA Data Cleanup
 

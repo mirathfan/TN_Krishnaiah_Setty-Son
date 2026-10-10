@@ -1,3 +1,6 @@
+-- LEGACY PRE-MIGRATION PATCH — retain for audit history; do not run as part of
+-- Phase 2A recovery. Development taxonomy now lives in supabase/seed.sql.
+--
 -- Client-approved storefront taxonomy.
 -- Safe to rerun. This patch never deletes products or categories.
 
