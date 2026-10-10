@@ -27,6 +27,20 @@ for (const pattern of forbiddenPatterns) {
   }
 }
 
+if (['preview', 'production'].includes(process.env.VERCEL_ENV || '')) {
+  const hostedReadOnlyPatterns = [
+    /https?:\\?\/\\?\/[^"'\s]+[.]supabase[.]co/i,
+    /\/functions\/v1\/checkout/,
+    /SupabaseClient|GoTrueClient|PostgrestClient/,
+  ];
+
+  for (const pattern of hostedReadOnlyPatterns) {
+    if (pattern.test(bundle)) {
+      throw new Error(`Hosted read-only bundle contains forbidden backend client material: ${pattern}`);
+    }
+  }
+}
+
 const localEnvironmentPath = join(process.cwd(), '.env.local');
 const sensitiveEnvironmentKey = /(?:^|_)(?:ADMIN_(?:USERNAME|PASSWORD|EMAIL)|SERVICE_ROLE_KEY)$/;
 const environmentSensitiveValues = Object.entries(process.env)

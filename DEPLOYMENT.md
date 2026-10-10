@@ -16,6 +16,8 @@ Phase 2A provides local migrations for the `auth.uid()` administrator allowlist,
 
 The authoritative readiness, rollback, recovery, compatibility, and checkout-review runbook is [`docs/PHASE_3A_READINESS.md`](docs/PHASE_3A_READINESS.md). Do not deploy or restore from this repository until that checklist has been reviewed and explicit authorization has been given.
 
+The first hosted read-only Preview procedure, environment-name audit, smoke tests, and Production approval gates are in [`docs/PHASE_3B_PREVIEW_RELEASE.md`](docs/PHASE_3B_PREVIEW_RELEASE.md).
+
 The frontend and Edge Function fail closed independently. Do not set the disposable checkout mode or acknowledgement variables in production. Checkout is currently enabled only for explicitly configured local/staging verification, and frontend admin access remains blocked.
 
 ## Reserved Backend Environment Variables
