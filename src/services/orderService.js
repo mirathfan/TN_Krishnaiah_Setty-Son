@@ -1,34 +1,12 @@
+import { assertDatabaseWriteAllowed, canAccessAdmin, canSubmitLiveOrder } from '../config/runtimeSafety';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
 const ORDERS_TABLE = 'orders';
 const ORDER_ITEMS_TABLE = 'order_items';
-const ORDER_STORAGE_KEY = 'tnk-orders-v1';
-const ORDER_SEQUENCE_STORAGE_KEY = 'tnk-order-sequence-v1';
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-function canUseLocalStorage() {
-  return typeof window !== 'undefined' && window.localStorage;
-}
 
 function isUuid(value) {
   return uuidPattern.test(String(value || ''));
-}
-
-function createTemporaryOrderNumber() {
-  const year = new Date().getFullYear();
-
-  if (!canUseLocalStorage()) {
-    return `TNK-${year}-0001`;
-  }
-
-  try {
-    const key = `${ORDER_SEQUENCE_STORAGE_KEY}-${year}`;
-    const nextNumber = Number(window.localStorage.getItem(key) || '0') + 1;
-    window.localStorage.setItem(key, String(nextNumber));
-    return `TNK-${year}-${String(nextNumber).padStart(4, '0')}`;
-  } catch {
-    return `TNK-${year}-${String(Math.floor(Date.now() % 10000)).padStart(4, '0')}`;
-  }
 }
 
 function createSupabaseOrderNumber() {
@@ -67,28 +45,6 @@ function createClientOrderId() {
 
   const hex = [...bytes].map((byte) => byte.toString(16).padStart(2, '0')).join('');
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-}
-
-function readLocalOrders() {
-  if (!canUseLocalStorage()) return [];
-
-  try {
-    const stored = window.localStorage.getItem(ORDER_STORAGE_KEY);
-    const parsed = stored ? JSON.parse(stored) : [];
-    return Array.isArray(parsed) ? parsed.map(normalizeOrder) : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeLocalOrders(orders) {
-  const normalizedOrders = orders.map(normalizeOrder);
-
-  if (canUseLocalStorage()) {
-    window.localStorage.setItem(ORDER_STORAGE_KEY, JSON.stringify(normalizedOrders));
-  }
-
-  return normalizedOrders;
 }
 
 function normalizeOrder(order = {}) {
@@ -133,7 +89,7 @@ function normalizeOrder(order = {}) {
 }
 
 function toSupabaseOrderPayload(orderPayload) {
-  const orderNumber = orderPayload.orderNumber || createTemporaryOrderNumber();
+  const orderNumber = orderPayload.orderNumber || createSupabaseOrderNumber();
   const now = new Date().toISOString();
 
   const payload = {
@@ -176,22 +132,15 @@ function throwSupabaseError(error) {
 }
 
 export async function createOrder(orderPayload) {
+  assertDatabaseWriteAllowed('Creating orders');
+
+  if (!canSubmitLiveOrder()) {
+    throw new Error('Online order submission is unavailable while the bookstore is in read-only mode.');
+  }
+
   const createdAt = new Date().toISOString();
 
-  if (!isSupabaseConfigured) {
-    const orderNumber = orderPayload.orderNumber || createTemporaryOrderNumber();
-    const currentOrders = readLocalOrders();
-    const localOrder = normalizeOrder({
-      ...orderPayload,
-      id: `local-${orderNumber}`,
-      orderNumber,
-      items: (orderPayload.items || []).map((item) => ({ ...item })),
-      createdAt,
-    });
-
-    writeLocalOrders([localOrder, ...currentOrders]);
-    return localOrder;
-  }
+  if (!isSupabaseConfigured || !supabase) throw new Error('Secured order storage is unavailable.');
 
   const orderNumber = orderPayload.orderNumber || createSupabaseOrderNumber();
   const orderId = isUuid(orderPayload.id) ? orderPayload.id : createClientOrderId();
@@ -237,7 +186,8 @@ export async function createOrder(orderPayload) {
 }
 
 export async function getOrders() {
-  if (!isSupabaseConfigured) return readLocalOrders();
+  if (!canAccessAdmin()) throw new Error('Admin order access is unavailable while the bookstore is in read-only mode.');
+  if (!isSupabaseConfigured || !supabase) throw new Error('Secured order storage is unavailable.');
 
   const { data, error } = await supabase
     .from(ORDERS_TABLE)
@@ -249,9 +199,8 @@ export async function getOrders() {
 }
 
 export async function getOrderByOrderNumber(orderNumber) {
-  if (!isSupabaseConfigured) {
-    return readLocalOrders().find((order) => order.orderNumber === orderNumber) || null;
-  }
+  if (!canAccessAdmin()) throw new Error('Order lookup is unavailable while the bookstore is in read-only mode.');
+  if (!isSupabaseConfigured || !supabase) throw new Error('Secured order storage is unavailable.');
 
   const { data, error } = await supabase
     .from(ORDERS_TABLE)
@@ -264,16 +213,9 @@ export async function getOrderByOrderNumber(orderNumber) {
 }
 
 export async function updateOrderStatus(orderId, status) {
-  if (!isSupabaseConfigured) {
-    const currentOrders = readLocalOrders();
-    const updatedOrders = currentOrders.map((order) =>
-      order.id === orderId || order.orderNumber === orderId
-        ? normalizeOrder({ ...order, orderStatus: status, updatedAt: new Date().toISOString() })
-        : order,
-    );
-    writeLocalOrders(updatedOrders);
-    return updatedOrders.find((order) => order.id === orderId || order.orderNumber === orderId) || null;
-  }
+  assertDatabaseWriteAllowed('Updating order status');
+  if (!canAccessAdmin()) throw new Error('Admin order updates are unavailable while the bookstore is in read-only mode.');
+  if (!isSupabaseConfigured || !supabase) throw new Error('Secured order storage is unavailable.');
 
   const { data, error } = await supabase
     .from(ORDERS_TABLE)
@@ -287,16 +229,9 @@ export async function updateOrderStatus(orderId, status) {
 }
 
 export async function updatePaymentStatus(orderId, status) {
-  if (!isSupabaseConfigured) {
-    const currentOrders = readLocalOrders();
-    const updatedOrders = currentOrders.map((order) =>
-      order.id === orderId || order.orderNumber === orderId
-        ? normalizeOrder({ ...order, paymentStatus: status, updatedAt: new Date().toISOString() })
-        : order,
-    );
-    writeLocalOrders(updatedOrders);
-    return updatedOrders.find((order) => order.id === orderId || order.orderNumber === orderId) || null;
-  }
+  assertDatabaseWriteAllowed('Updating payment status');
+  if (!canAccessAdmin()) throw new Error('Admin payment updates are unavailable while the bookstore is in read-only mode.');
+  if (!isSupabaseConfigured || !supabase) throw new Error('Secured order storage is unavailable.');
 
   const { data, error } = await supabase
     .from(ORDERS_TABLE)

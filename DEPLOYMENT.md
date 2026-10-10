@@ -2,52 +2,26 @@
 
 This guide prepares the bookstore app for production deployment on Vercel with Supabase as the backend.
 
-## Required Environment Variables
+## Phase 1 Safety Status
 
-Set these in local `.env.local` and in Vercel Project Settings > Environment Variables:
+The application is code-locked to read-only mode during production hardening:
+
+1. The public storefront uses the bundled preview catalog.
+2. Catalog prices and availability are explicitly unconfirmed.
+3. Database writes, checkout submission, image writes, and admin access are blocked.
+4. Do not connect, restore, or recreate a production Supabase backend until the authorization, RLS, and transactional checkout work has been reviewed and tested.
+5. Do not add admin usernames or passwords to `VITE_*` variables. Vite exposes those variables to the browser bundle.
+
+## Reserved Backend Environment Variables
+
+These variables are reserved for the future secured backend. The Phase 1 read-only build does not use them for catalog loading or writes, and this hardening work does not require changing existing Vercel values:
 
 ```bash
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_ANON_KEY=your-supabase-publishable-or-anon-key
 ```
 
-Local fallback credentials are only for development when Supabase is not configured:
-
-```bash
-VITE_ADMIN_USERNAME=admin
-VITE_ADMIN_PASSWORD=change-this-password
-```
-
-Do not use local fallback credentials as production admin authentication.
-
-## Supabase Setup
-
-Run the SQL files in this order from the Supabase SQL Editor:
-
-1. `supabase/schema.sql`
-2. `supabase/patches/fix-anonymous-checkout-insert.sql`
-3. `supabase/patches/setup-product-images-storage.sql`
-4. `supabase/patches/fix-function-search-path.sql`
-5. `supabase/patches/update-client-branding-categories.sql`
-
-After running the files, verify:
-
-1. Public products load from the `products` table.
-2. Anonymous users can insert into `orders` and `order_items`.
-3. Anonymous users cannot select all orders.
-4. Authenticated admins can manage products and orders.
-5. `product-images` bucket exists and accepts JPG, PNG, and WebP images up to 5 MB.
-
-## Supabase Auth Admin User
-
-Create an admin user in Supabase:
-
-1. Open Supabase Dashboard.
-2. Go to Authentication > Users.
-3. Add a user with email/password.
-4. Use that account at `/admin/login`.
-
-Current RLS treats authenticated Supabase users as admins. Before a larger staff rollout, add an admin role/profile table and tighten the product/order policies to that role.
+The existing SQL files document the previous MVP and must not be applied to production as-is. They contain broad authenticated-user policies and direct anonymous order inserts that are intentionally blocked by the Phase 1 frontend.
 
 ## Supabase Auth Security Setting
 
@@ -67,7 +41,7 @@ The `setup-product-images-storage.sql` patch creates a public bucket named `prod
 Expected behavior:
 
 1. Public image URLs are readable by customers.
-2. Authenticated admins can upload, update, and delete images in `products/`.
+2. Phase 1 blocks all image upload, update, and delete operations in the frontend.
 3. Anonymous users cannot upload, update, or delete images.
 4. There is no broad anonymous `storage.objects` SELECT policy for listing the bucket.
 
@@ -100,27 +74,24 @@ Public storefront:
 4. Product detail pages load by slug.
 5. Uploaded cover and gallery images render.
 6. Cart opens and updates quantities.
-7. Checkout creates an order request.
-8. Order confirmation shows an order number.
-9. WhatsApp handoff includes order number, products, quantities, total, and customer details.
+7. Checkout submission is disabled and explains that totals are previews.
+8. WhatsApp cart handoff remains available for confirmation.
+9. Preview products are clearly labeled as unconfirmed inventory.
 
 Admin:
 
-1. `/admin/products` redirects to `/admin/login` when logged out.
-2. Admin Supabase email/password login works.
-3. Product create/edit/delete works.
-4. Product image upload works.
-5. Admin orders page loads.
-6. Order status and payment status updates work.
-7. Logout works.
+1. `/admin/login`, `/admin/products`, and `/admin/orders` resolve as SPA deep links.
+2. All three routes show the production safety lock.
+3. No localStorage token or browser credential can unlock admin access.
+4. Product, image, and order writes remain blocked.
 
 Security:
 
 1. Anonymous product create/update/delete is blocked.
 2. Anonymous image upload/update/delete is blocked.
-3. Anonymous checkout insert works.
-4. Anonymous order SELECT remains blocked.
-5. Supabase advisors show no unresolved database function search path warning.
+3. Anonymous checkout insert is not attempted in Phase 1.
+4. No Supabase client is instantiated by the Phase 1 read-only build.
+5. Database RLS and advisor verification remains a Phase 2 blocker before backend restoration.
 
 ## Manual QA Data Cleanup
 

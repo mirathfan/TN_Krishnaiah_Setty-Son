@@ -1,43 +1,8 @@
+import { canAccessAdmin } from '../config/runtimeSafety';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
-const LOCAL_ADMIN_SESSION_KEY = 'tnk-admin-session-v1';
-const localAdminUsername = import.meta.env.VITE_ADMIN_USERNAME;
-const localAdminPassword = import.meta.env.VITE_ADMIN_PASSWORD;
-
-function canUseLocalStorage() {
-  return typeof window !== 'undefined' && window.localStorage;
-}
-
-function getLocalAdminSession() {
-  if (!canUseLocalStorage()) return null;
-
-  const token = window.localStorage.getItem(LOCAL_ADMIN_SESSION_KEY);
-  return token
-    ? {
-        access_token: token,
-        user: { email: 'local-admin@localhost' },
-      }
-    : null;
-}
-
-function setLocalAdminSession() {
-  const token = `local-admin-session-${Date.now()}`;
-
-  if (canUseLocalStorage()) {
-    window.localStorage.setItem(LOCAL_ADMIN_SESSION_KEY, token);
-  }
-
-  return {
-    access_token: token,
-    user: { email: 'local-admin@localhost' },
-  };
-}
-
-function clearLocalAdminSession() {
-  if (canUseLocalStorage()) {
-    window.localStorage.removeItem(LOCAL_ADMIN_SESSION_KEY);
-  }
-}
+const adminUnavailableMessage =
+  'Admin access is temporarily unavailable while server-side authorization is being secured.';
 
 function getSafeAuthErrorMessage(error) {
   const message = String(error?.message || '').toLowerCase();
@@ -63,16 +28,13 @@ function getSafeAuthErrorMessage(error) {
 }
 
 export function getAdminAuthMode() {
-  return isSupabaseConfigured ? 'supabase' : 'local';
-}
-
-export function isLocalAdminFallbackConfigured() {
-  return Boolean(localAdminUsername && localAdminPassword);
+  if (!canAccessAdmin()) return 'blocked';
+  return isSupabaseConfigured ? 'supabase' : 'unavailable';
 }
 
 export async function getCurrentAdminSession() {
-  if (!isSupabaseConfigured) {
-    return getLocalAdminSession();
+  if (!canAccessAdmin() || !isSupabaseConfigured || !supabase) {
+    return null;
   }
 
   const { data, error } = await supabase.auth.getSession();
@@ -85,7 +47,7 @@ export async function getCurrentAdminSession() {
 }
 
 export function onAdminAuthStateChange(callback) {
-  if (!isSupabaseConfigured) return () => {};
+  if (!canAccessAdmin() || !isSupabaseConfigured || !supabase) return () => {};
 
   const { data } = supabase.auth.onAuthStateChange((_event, session) => {
     callback(session || null);
@@ -96,44 +58,39 @@ export function onAdminAuthStateChange(callback) {
   };
 }
 
-export async function signInAdmin({ email = '', username = '', password = '' }) {
-  if (isSupabaseConfigured) {
-    const trimmedEmail = email.trim();
-
-    if (!trimmedEmail || !password) {
-      throw new Error('Email and password are required.');
-    }
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: trimmedEmail,
-      password,
-    });
-
-    if (error) {
-      throw new Error(getSafeAuthErrorMessage(error));
-    }
-
-    if (!data?.session) {
-      throw new Error('Could not start an admin session. Please try again.');
-    }
-
-    return data.session;
+export async function signInAdmin({ email = '', password = '' }) {
+  if (!canAccessAdmin()) {
+    throw new Error(adminUnavailableMessage);
   }
 
-  if (!isLocalAdminFallbackConfigured()) {
-    throw new Error('Admin database features require Supabase configuration. Local fallback credentials are missing.');
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Admin access requires a secured Supabase configuration.');
   }
 
-  if (username.trim() === localAdminUsername && password === localAdminPassword) {
-    return setLocalAdminSession();
+  const trimmedEmail = email.trim();
+
+  if (!trimmedEmail || !password) {
+    throw new Error('Email and password are required.');
   }
 
-  throw new Error('Wrong username or password.');
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: trimmedEmail,
+    password,
+  });
+
+  if (error) {
+    throw new Error(getSafeAuthErrorMessage(error));
+  }
+
+  if (!data?.session) {
+    throw new Error('Could not start an admin session. Please try again.');
+  }
+
+  return data.session;
 }
 
 export async function signOutAdmin() {
-  if (!isSupabaseConfigured) {
-    clearLocalAdminSession();
+  if (!canAccessAdmin() || !isSupabaseConfigured || !supabase) {
     return true;
   }
 

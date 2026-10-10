@@ -39,11 +39,17 @@ import {
 } from 'lucide-react';
 
 import { initialProducts } from './data/demoProducts';
+import {
+  canAccessAdmin,
+  canSubmitLiveOrder,
+  runtimeSafety,
+  safeModeMessage,
+} from './config/runtimeSafety';
 import { isSupabaseConfigured } from './lib/supabaseClient';
+import { getRouteFromLocation, isAdminRouteType } from './lib/routes';
 import {
   getAdminAuthMode,
   getCurrentAdminSession,
-  isLocalAdminFallbackConfigured,
   onAdminAuthStateChange,
   signInAdmin,
   signOutAdmin,
@@ -144,11 +150,12 @@ const publishers = [
 ];
 const bookTypes = ['Paperback', 'E-book'];
 const adminAuthMode = getAdminAuthMode();
+const isReadOnlyMode = runtimeSafety.readOnly;
 
 const trustItems = [
   { icon: ShieldCheck, title: 'Original Editions', text: 'Trusted publications and curated spiritual titles.' },
   { icon: PackageCheck, title: 'Safe Packing', text: 'Careful packaging for books, sets, and temple orders.' },
-  { icon: Truck, title: 'Shipping Support', text: 'Checkout-ready store flow with shipping policy pages.' },
+  { icon: Truck, title: 'Shipping Support', text: 'Call or WhatsApp to confirm current availability and delivery.' },
   { icon: MessageCircle, title: 'Bulk Orders', text: 'WhatsApp support for temples, schools, and resellers.' },
 ];
 
@@ -286,7 +293,7 @@ function makeCartWhatsAppMessage(cartItems, customer = {}, orderNumber = '', pay
     orderNumber ? `Temporary order number: ${orderNumber}` : '',
     itemLines.length ? 'Books:' : '',
     ...itemLines,
-    `Total amount: ${formatPrice(total)}`,
+    `${isReadOnlyMode ? 'Preview total (not confirmed)' : 'Total amount'}: ${formatPrice(total)}`,
     `Shipping: ${shipping ? formatPrice(shipping) : 'Free'}`,
     customer.fullName ? `Customer name: ${customer.fullName}` : '',
     customer.phone ? `Phone / WhatsApp: ${customer.phone}` : '',
@@ -298,9 +305,6 @@ function makeCartWhatsAppMessage(cartItems, customer = {}, orderNumber = '', pay
     .join('\n');
 }
 
-const CUSTOMER_PROFILE_STORAGE_KEY = 'tnk-customer-profile-v1';
-const CUSTOMER_BULK_PROFILE_STORAGE_KEY = 'tnk-customer-bulk-profile-v1';
-const CUSTOMER_ORDER_HISTORY_STORAGE_KEY = 'tnk-customer-order-history-v1';
 const CUSTOMER_WISHLIST_STORAGE_KEY = 'tnk-customer-wishlist-v1';
 
 const emptyCustomerProfile = {
@@ -323,7 +327,7 @@ function canUseCustomerStorage() {
   return typeof window !== 'undefined' && window.localStorage;
 }
 
-function readCustomerStorage(key, fallback) {
+function readLocalPreference(key, fallback) {
   if (!canUseCustomerStorage()) return fallback;
 
   try {
@@ -334,7 +338,7 @@ function readCustomerStorage(key, fallback) {
   }
 }
 
-function writeCustomerStorage(key, value) {
+function writeLocalPreference(key, value) {
   if (!canUseCustomerStorage()) return;
 
   try {
@@ -771,7 +775,7 @@ function Header({
                   <PackageSearch className="h-5 w-5" aria-hidden="true" />
                   <span>
                     <strong>Track Order</strong>
-                    <small>Check status after checkout or phone order</small>
+                    <small>Contact the shop for status while online tracking is unavailable</small>
                   </span>
                 </button>
               </div>
@@ -780,6 +784,22 @@ function Header({
         </div>
       </nav>
     </header>
+  );
+}
+
+function ReadOnlyBanner() {
+  return (
+    <section className="border-b border-[#e8c58b] bg-[#fff3d7] px-4 py-3" role="status" aria-label="Store availability notice">
+      <div className="mx-auto flex max-w-7xl flex-col gap-2 text-sm text-[#6f3c0a] sm:flex-row sm:items-center sm:justify-between">
+        <p className="font-bold">
+          Preview catalog: prices, stock labels, and availability are not confirmed. Online checkout is temporarily disabled.
+        </p>
+        <a href={generalWhatsAppLink} className="inline-flex shrink-0 items-center gap-2 font-extrabold text-[#1f6a36] hover:text-[#154c28]">
+          <MessageCircle className="h-4 w-4" />
+          Confirm on WhatsApp
+        </a>
+      </div>
+    </section>
   );
 }
 
@@ -998,11 +1018,18 @@ function ProductCard({ product, isWishlisted, onAddToCart, onToggleWishlist }) {
       </div>
 
       <div className="pt-4">
+        {product.isCatalogPreview && (
+          <p className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.12em] text-[#9b6819]">
+            Preview listing · availability unconfirmed
+          </p>
+        )}
         <div className="mb-2 flex items-center justify-between gap-3">
           <span className="rounded-sm bg-[#fff3d7] px-2 py-1 text-[11px] font-extrabold uppercase tracking-[0.1em] text-[#8c5f17]">
             {product.category}
           </span>
-          <span className="text-xs font-bold text-[#1f7a3b]">{product.stock}</span>
+          <span className="text-xs font-bold text-[#8c4b0b]">
+            {product.isCatalogPreview ? 'Check availability' : product.stock}
+          </span>
         </div>
         <h3 className="min-h-[52px] font-serif text-xl font-bold leading-snug text-[#351b12]">
           <a href={`#product/${product.id}`} className="transition hover:text-[#64131d]">
@@ -1018,6 +1045,7 @@ function ProductCard({ product, isWishlisted, onAddToCart, onToggleWishlist }) {
           <strong className="text-xl text-[#64131d]">{formatPrice(product.price)}</strong>
           <span className="text-sm font-semibold text-[#8a705c] line-through">{formatPrice(product.mrp)}</span>
         </div>
+        {product.isCatalogPreview && <p className="mt-1 text-xs font-semibold text-[#8a705c]">Preview price; confirm before ordering.</p>}
         <div className="mt-4 grid grid-cols-[1fr_auto] gap-2">
           <button type="button" onClick={() => onAddToCart(product)} className="cart-button">
             <ShoppingCart className="h-4 w-4" aria-hidden="true" />
@@ -1168,15 +1196,14 @@ function StoreExperience({ onOpenTrack }) {
         <div>
           <h2 className="font-serif text-3xl font-bold sm:text-4xl">A complete store flow, with human help when needed</h2>
           <p className="mt-4 max-w-xl text-base leading-8 text-[#ffe4bd]">
-            Customers can browse online, add to cart, checkout, track orders, or
-            use WhatsApp/call for bulk temple orders and hard-to-find titles.
+            Customers can browse the preview catalog, prepare a cart, and use WhatsApp or call for confirmed availability, current pricing, bulk orders, and hard-to-find titles.
           </p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           {[
-            { icon: ShoppingCart, title: 'Cart & Checkout', text: 'Buy now, add to cart, delivery details, and order summary.' },
-            { icon: CreditCard, title: 'Payment Ready', text: 'Designed for UPI, cards, COD rules, and payment policy pages.' },
-            { icon: PackageSearch, title: 'Order Tracking', text: 'Customers can check status from account or tracking page.', action: onOpenTrack },
+            { icon: ShoppingCart, title: 'Preview Cart', text: 'Collect titles and quantities before confirming them with the bookstore.' },
+            { icon: CreditCard, title: 'No Online Payment', text: 'Payment and delivery details are arranged only after the bookstore confirms the order.' },
+            { icon: PackageSearch, title: 'Tracking Notice', text: 'Online tracking is unavailable; existing customers can contact the shop.', action: onOpenTrack },
           ].map((item) => {
             const Icon = item.icon;
             const content = (
@@ -1208,9 +1235,8 @@ function VisitAndFooter({ onOpenTrack }) {
           <div>
             <h2 className="font-serif text-3xl font-bold text-[#351b12] sm:text-4xl">Visit the Chickpet store or order from home</h2>
             <p className="mt-4 max-w-xl text-base leading-8 text-[#715240]">
-              The online store can support direct purchases, but the shop should
-              still feel personal: customers can send book names, photos, lists,
-              language needs, or bulk enquiries through WhatsApp.
+              Browse the preview collection, then send book names, photos, lists,
+              language needs, or bulk enquiries through WhatsApp for confirmation.
             </p>
             <div className="mt-7 grid gap-4">
               <InfoRow icon={MapPin} title="Address" text={businessDetails.address} />
@@ -1231,8 +1257,8 @@ function VisitAndFooter({ onOpenTrack }) {
             </a>
             <button type="button" onClick={onOpenTrack} className="contact-tile bg-white text-[#351b12] sm:col-span-2">
               <PackageSearch className="h-8 w-8" />
-              <span>Track an Order</span>
-              <small>Enter an order number after checkout or phone booking.</small>
+              <span>Order Status Help</span>
+              <small>Online tracking is unavailable; contact the shop for an update.</small>
             </button>
           </div>
         </div>
@@ -1311,6 +1337,11 @@ function ProductModal({ product, isWishlisted, onClose, onAddToCart, onToggleWis
         </div>
         <div>
           <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-[#9b6819]">{product.category}</p>
+          {product.isCatalogPreview && (
+            <p className="mt-2 border border-[#e8c58b] bg-[#fff7e8] px-3 py-2 text-sm font-bold text-[#8c4b0b]">
+              Preview listing. Confirm price and availability on WhatsApp.
+            </p>
+          )}
           <h2 className="mt-2 font-serif text-3xl font-bold text-[#351b12]">{product.title}</h2>
           <p className="mt-2 text-[#715240]">{product.subtitle}</p>
           <div className="mt-4">
@@ -1480,6 +1511,11 @@ function ProductPage({ product, relatedProducts, isLoading = false, loadError = 
             {loadError}
           </div>
         )}
+        {product.isCatalogPreview && (
+          <div className="mb-5 border border-[#e8c58b] bg-[#fff7e8] px-4 py-3 text-sm font-semibold text-[#8c4b0b]" role="status">
+            This is a preview catalog listing. Price, stock, delivery timing, and availability must be confirmed with the bookstore.
+          </div>
+        )}
 
         <div className="grid gap-6 lg:grid-cols-[0.82fr_1.05fr_0.78fr] lg:items-start">
           <div className="order-2 border border-[#eadfca] bg-white p-4 shadow-sm shadow-[#64131d]/5 lg:order-1">
@@ -1529,7 +1565,7 @@ function ProductPage({ product, relatedProducts, isLoading = false, loadError = 
               </span>
               <span className={`inline-flex items-center gap-2 rounded-sm border px-3 py-1 text-xs font-extrabold ${stockState.border} ${stockState.background} ${stockState.text}`}>
                 <span className={`h-2 w-2 rounded-full ${stockState.dot}`} />
-                {stockState.label}
+                {product.isCatalogPreview ? 'Availability unconfirmed' : stockState.label}
               </span>
             </div>
 
@@ -1542,7 +1578,7 @@ function ProductPage({ product, relatedProducts, isLoading = false, loadError = 
               <div className="flex flex-wrap items-end gap-3">
                 <div>
                   <p className="text-xs font-extrabold uppercase tracking-[0.12em] text-[#8a705c]">
-                    Selling price
+                    {product.isCatalogPreview ? 'Preview price' : 'Selling price'}
                   </p>
                   <strong className="mt-1 block text-4xl font-black text-[#64131d]">{formatPrice(product.price)}</strong>
                 </div>
@@ -1555,7 +1591,7 @@ function ProductPage({ product, relatedProducts, isLoading = false, loadError = 
               </div>
               <p className={`mt-3 flex items-center gap-2 text-sm font-bold ${stockState.text}`}>
                 <span className={`h-2.5 w-2.5 rounded-full ${stockState.dot}`} />
-                {stockState.label}. {stockState.note}
+                {product.isCatalogPreview ? 'Contact the bookstore to confirm current stock.' : `${stockState.label}. ${stockState.note}`}
               </p>
             </div>
 
@@ -1723,16 +1759,15 @@ function ProductPage({ product, relatedProducts, isLoading = false, loadError = 
 
 function AdminLogin({
   onLogin,
-  authMode = 'local',
+  authMode = 'blocked',
   authError = '',
   isAuthenticating = false,
 }) {
   const isSupabaseAuth = authMode === 'supabase';
   const [email, setEmail] = useState('');
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const isConfigured = isSupabaseAuth || isLocalAdminFallbackConfigured();
+  const isConfigured = isSupabaseAuth && canAccessAdmin();
   const displayedError = error || authError;
 
   const submitLogin = async (event) => {
@@ -1740,24 +1775,18 @@ function AdminLogin({
     setError('');
 
     if (!isConfigured) {
-      setError('Admin database features require Supabase configuration. Local fallback credentials are missing.');
+      setError('Admin access is temporarily unavailable while server-side authorization is being secured.');
       return;
     }
 
-    if (isSupabaseAuth && (!email.trim() || !password)) {
+    if (!email.trim() || !password) {
       setError('Email and password are required.');
-      return;
-    }
-
-    if (!isSupabaseAuth && (!username.trim() || !password)) {
-      setError('Username and password are required.');
       return;
     }
 
     try {
       await onLogin({
         email,
-        username,
         password,
       });
     } catch (loginError) {
@@ -1783,7 +1812,7 @@ function AdminLogin({
               </p>
             </div>
             <p className="text-sm font-semibold text-[#f3c76a]">
-              {isSupabaseAuth ? 'Secured with Supabase Auth.' : 'Local fallback auth for development only.'}
+              {isSupabaseAuth ? 'Secured admin authorization required.' : 'Admin access is currently blocked.'}
             </p>
           </div>
 
@@ -1801,15 +1830,14 @@ function AdminLogin({
                 <p className="mt-1 max-w-full text-sm leading-6 text-[#715240]">
                   {isSupabaseAuth
                     ? 'Sign in with your Supabase admin email and password.'
-                    : 'Admin database features require Supabase configuration. Local fallback login is available for development only.'}
+                    : 'Admin access will remain disabled until server-side authorization and database policies are repaired.'}
                 </p>
               </div>
             </div>
 
             {!isSupabaseAuth && !isConfigured && (
               <div className="mt-6 border border-[#d9c396] bg-[#fff7e8] p-4 text-sm font-semibold leading-6 text-[#64131d]">
-                Admin database features require Supabase configuration. Set
-                local fallback credentials only for development access.
+                This page cannot create a local or mock admin session. Public storefront browsing remains available.
               </div>
             )}
 
@@ -1820,30 +1848,18 @@ function AdminLogin({
             )}
 
             <div className="mt-6 grid gap-4">
-              {isSupabaseAuth ? (
-                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
-                  Email
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    className="form-field"
-                    autoComplete="email"
-                    placeholder="admin@example.com"
-                  />
-                </label>
-              ) : (
-                <label className="grid gap-2 text-sm font-bold text-[#351b12]">
-                  Username
-                  <input
-                    value={username}
-                    onChange={(event) => setUsername(event.target.value)}
-                    className="form-field"
-                    autoComplete="username"
-                    placeholder="Admin username"
-                  />
-                </label>
-              )}
+              <label className="grid gap-2 text-sm font-bold text-[#351b12]">
+                Email
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  className="form-field"
+                  autoComplete="email"
+                  placeholder="admin@example.com"
+                  disabled={!isConfigured}
+                />
+              </label>
               <label className="grid gap-2 text-sm font-bold text-[#351b12]">
                 Password
                 <input
@@ -1853,11 +1869,12 @@ function AdminLogin({
                   className="form-field"
                   autoComplete="current-password"
                   placeholder="Admin password"
+                  disabled={!isConfigured}
                 />
               </label>
             </div>
 
-            <button type="submit" className="primary-button mt-6 w-full" disabled={isAuthenticating}>
+            <button type="submit" className="primary-button mt-6 w-full" disabled={isAuthenticating || !isConfigured}>
               <LockKeyhole className="h-5 w-5" />
               {isAuthenticating ? 'Signing in...' : 'Login'}
             </button>
@@ -1927,6 +1944,27 @@ function AdminLoadingScreen() {
         </span>
         <h1 className="mt-5 font-serif text-2xl font-bold text-[#351b12]">Checking admin session</h1>
         <p className="mt-2 text-sm font-semibold text-[#715240]">Please wait a moment.</p>
+      </div>
+    </section>
+  );
+}
+
+function AdminUnavailable() {
+  return (
+    <section className="grid min-h-screen place-items-center bg-[#fff7e8] px-4 py-10">
+      <div className="w-full max-w-2xl border border-[#eadfca] bg-white p-8 text-center shadow-xl shadow-[#64131d]/10 sm:p-12">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-lg bg-[#fff4d8] text-[#64131d]">
+          <LockKeyhole className="h-6 w-6" />
+        </span>
+        <p className="mt-6 text-xs font-extrabold uppercase tracking-[0.14em] text-[#9b6819]">Production safety lock</p>
+        <h1 className="mt-2 font-serif text-3xl font-bold text-[#351b12]">Admin access is temporarily unavailable</h1>
+        <p className="mx-auto mt-4 max-w-xl leading-7 text-[#715240]">
+          Product and order administration is blocked until server-side authorization and Supabase row-level security are repaired and reviewed.
+        </p>
+        <a href="/" className="primary-button mx-auto mt-7 w-full sm:w-fit">
+          <Store className="h-5 w-5" />
+          Return to Storefront
+        </a>
       </div>
     </section>
   );
@@ -2947,7 +2985,7 @@ function AdminSelect({ label, value, onChange, options }) {
   );
 }
 
-function CartDrawer({ isOpen, cartItems, onClose, onAdd, onRemove, onDelete, onCheckout }) {
+function CartDrawer({ isOpen, cartItems, onClose, onAdd, onRemove, onDelete, onCheckout, checkoutDisabled = false }) {
   const { subtotal, shipping, total } = getOrderTotals(cartItems);
   const cartWhatsAppLink = makeWhatsAppLink(makeCartWhatsAppMessage(cartItems));
 
@@ -3014,13 +3052,18 @@ function CartDrawer({ isOpen, cartItems, onClose, onAdd, onRemove, onDelete, onC
                 <SummaryRow label="Shipping" value={shipping ? formatPrice(shipping) : 'Free'} />
                 <SummaryRow label="Total" value={formatPrice(total)} strong />
               </div>
-              <button type="button" onClick={onCheckout} className="primary-button mt-5 w-full">
+              <button type="button" onClick={onCheckout} className="primary-button mt-5 w-full" disabled={checkoutDisabled}>
                 <CreditCard className="h-5 w-5" />
-                Checkout
+                {checkoutDisabled ? 'Online Checkout Unavailable' : 'Checkout'}
               </button>
+              {checkoutDisabled && (
+                <p className="mt-3 text-sm font-semibold leading-6 text-[#8c4b0b]">
+                  Cart totals are previews only. Please confirm current price, stock, and delivery directly with the bookstore.
+                </p>
+              )}
               <a href={cartWhatsAppLink} className="secondary-button mt-3 w-full">
                 <MessageCircle className="h-5 w-5" />
-                WhatsApp Bulk Order
+                Confirm Cart on WhatsApp
               </a>
             </div>
           </div>
@@ -3415,31 +3458,19 @@ function SummaryRow({ label, value, strong = false }) {
 }
 
 function TrackOrderModal({ onClose }) {
-  const [tracked, setTracked] = useState(false);
-
   return (
     <Modal onClose={onClose} compact>
-      <h2 className="font-serif text-3xl font-bold text-[#351b12]">Track Your Order</h2>
-      <p className="mt-2 text-[#715240]">Enter an online order ID or phone order reference.</p>
-      <form onSubmit={(event) => { event.preventDefault(); setTracked(true); }} className="mt-5 flex flex-col gap-3 sm:flex-row">
-        <input className="form-field flex-1" placeholder="Example: TNK-2026-108" />
-        <button type="submit" className="primary-button">
-          Track
-        </button>
-      </form>
-      {tracked && (
-        <div className="mt-6 border border-[#eadfca] bg-[#fffaf0] p-5">
-          <p className="font-extrabold text-[#351b12]">TNK-2026-108</p>
-          <div className="mt-4 grid gap-4">
-            {['Order confirmed', 'Packed at Chickpet store', 'Ready for dispatch'].map((step, index) => (
-              <div key={step} className="flex gap-3">
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-[#64131d] text-xs font-bold text-white">{index + 1}</span>
-                <span className="pt-1 text-sm font-semibold text-[#604638]">{step}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      <span className="grid h-14 w-14 place-items-center rounded-full bg-[#fff4d8] text-[#9b6819]">
+        <PackageSearch className="h-7 w-7" />
+      </span>
+      <h2 className="mt-5 font-serif text-3xl font-bold text-[#351b12]">Online tracking is temporarily unavailable</h2>
+      <p className="mt-3 leading-7 text-[#715240]">
+        We cannot securely look up live order status while the order system is being upgraded. No status shown here is generated or estimated.
+      </p>
+      <a href={generalWhatsAppLink} className="primary-button mt-6 w-full border-[#1f7a3b] bg-[#1f7a3b] hover:bg-[#195f30]">
+        <MessageCircle className="h-5 w-5" />
+        Ask about an existing order on WhatsApp
+      </a>
     </Modal>
   );
 }
@@ -3470,10 +3501,10 @@ function AccountModal({
   const bulkWhatsAppLink = makeWhatsAppLink(makeBulkProfileWhatsAppMessage(savedBulkProfile));
 
   const sections = [
-    { id: 'profile', label: profileComplete ? 'Profile Saved' : 'Login / Sign up' },
+    { id: 'profile', label: profileComplete ? 'Details Added' : 'Contact Details' },
     { id: 'wishlist', label: `Saved Wishlist (${wishlistProducts.length})` },
-    { id: 'orders', label: `Order History (${customerOrders.length})` },
-    { id: 'bulk', label: bulkProfileComplete ? 'Bulk Profile Saved' : 'Bulk Order Profile' },
+    { id: 'orders', label: 'Order History Unavailable' },
+    { id: 'bulk', label: bulkProfileComplete ? 'Bulk Details Added' : 'Bulk Order Details' },
   ];
 
   const updateProfileField = (field, value) => {
@@ -3498,7 +3529,7 @@ function AccountModal({
     }
 
     onSaveCustomerProfile(normalized);
-    setProfileNotice('Customer profile saved for faster checkout on this device.');
+    setProfileNotice('Details are available only for this open browser session and are not stored on this device.');
   };
 
   const saveBulkProfile = (event) => {
@@ -3511,17 +3542,16 @@ function AccountModal({
     }
 
     onSaveBulkOrderProfile(normalized);
-    setBulkNotice('Bulk order profile saved. You can now send the enquiry on WhatsApp.');
+    setBulkNotice('Details are kept only for this open browser session. You can now send the enquiry on WhatsApp.');
   };
 
   return (
     <Modal onClose={onClose}>
       <div className="border-b border-[#eadfca] pb-5 pr-12">
         <p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#9b6819]">Customer tools</p>
-        <h2 className="mt-2 font-serif text-3xl font-bold text-[#351b12]">Customer Account</h2>
+        <h2 className="mt-2 font-serif text-3xl font-bold text-[#351b12]">Customer Tools</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-[#715240] sm:text-base">
-          Save customer details for faster checkout, manage wishlisted books,
-          review orders placed from this device, and send bulk order enquiries.
+          Manage wishlisted books and prepare WhatsApp enquiries. Contact and bulk-order details stay in memory only for this open browser session.
         </p>
       </div>
 
@@ -3552,11 +3582,9 @@ function AccountModal({
                   <User className="h-5 w-5" />
                 </span>
                 <div>
-                  <h3 className="font-serif text-2xl font-bold text-[#351b12]">Login / Sign up</h3>
+                  <h3 className="font-serif text-2xl font-bold text-[#351b12]">Contact Details</h3>
                   <p className="mt-1 text-sm leading-6 text-[#715240]">
-                    This saves a customer profile on this device for quick
-                    checkout. Full customer accounts can be connected later
-                    when customer auth is added.
+                    These details are not an account and are not saved to localStorage. They remain available only until this page is closed or refreshed.
                   </p>
                 </div>
               </div>
@@ -3611,7 +3639,7 @@ function AccountModal({
                 <div className="grid gap-2 sm:items-end">
                   <button type="submit" className="primary-button min-h-12 w-full">
                     <Save className="h-5 w-5" />
-                    Save Profile
+                    Use for This Visit
                   </button>
                 </div>
               </form>
@@ -3689,8 +3717,7 @@ function AccountModal({
             <section className="border border-[#eadfca] bg-[#fffdf8] p-5">
               <h3 className="font-serif text-2xl font-bold text-[#351b12]">Order History</h3>
               <p className="mt-1 text-sm leading-6 text-[#715240]">
-                Recent order requests placed from this device are listed here.
-                For older orders, use the order number or WhatsApp the shop.
+                Order records are not stored in this browser. Contact the bookstore on WhatsApp with your existing order reference for help.
               </p>
 
               {customerOrders.length ? (
@@ -3738,13 +3765,13 @@ function AccountModal({
               ) : (
                 <div className="mt-5 border border-dashed border-[#d9c396] bg-white p-6 text-center">
                   <PackageSearch className="mx-auto h-10 w-10 text-[#9b6819]" />
-                  <h4 className="mt-3 font-serif text-xl font-bold text-[#351b12]">No order history yet</h4>
+                  <h4 className="mt-3 font-serif text-xl font-bold text-[#351b12]">Browser order history is disabled</h4>
                   <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#715240]">
-                    Checkout requests made from this browser will appear here
-                    after the order confirmation is shown.
+                    This site does not retain customer contact, address, or order records in localStorage.
                   </p>
-                  <a href="#catalog" onClick={onClose} className="primary-button mx-auto mt-4 w-full sm:w-fit">
-                    Start Shopping
+                  <a href={generalWhatsAppLink} className="primary-button mx-auto mt-4 w-full sm:w-fit">
+                    <MessageCircle className="h-5 w-5" />
+                    Ask on WhatsApp
                   </a>
                 </div>
               )}
@@ -3760,8 +3787,7 @@ function AccountModal({
                 <div>
                   <h3 className="font-serif text-2xl font-bold text-[#351b12]">Bulk Order Profile</h3>
                   <p className="mt-1 text-sm leading-6 text-[#715240]">
-                    Save details for temple, school, institution, reseller, or
-                    family bulk orders, then send the enquiry on WhatsApp.
+                    Prepare details for a temple, school, institution, reseller, or family enquiry. They are not stored after this browser session.
                   </p>
                 </div>
               </div>
@@ -3815,7 +3841,7 @@ function AccountModal({
                 <div className="grid gap-3 sm:col-span-2 sm:grid-cols-2">
                   <button type="submit" className="primary-button min-h-12 w-full">
                     <Save className="h-5 w-5" />
-                    Save Bulk Profile
+                    Use for This Visit
                   </button>
                   <a href={bulkWhatsAppLink} className="secondary-button min-h-12 w-full border-[#1f7a3b] text-[#1f7a3b] hover:border-[#1f7a3b] hover:bg-[#eefaf1]">
                     <MessageCircle className="h-5 w-5" />
@@ -3898,26 +3924,7 @@ function Modal({ children, onClose, compact = false }) {
 
 function getCurrentRoute() {
   if (typeof window === 'undefined') return { type: 'store' };
-
-  const { pathname, hash } = window.location;
-
-  if (pathname === '/admin/login') {
-    return { type: 'adminLogin' };
-  }
-
-  if (pathname === '/admin/orders') {
-    return { type: 'adminOrders' };
-  }
-
-  if (pathname.startsWith('/admin')) {
-    return { type: 'adminProducts' };
-  }
-
-  if (hash.startsWith('#product/')) {
-    return { type: 'product', productId: decodeURIComponent(hash.replace('#product/', '')) };
-  }
-
-  return { type: 'store' };
+  return getRouteFromLocation(window.location);
 }
 
 function replaceRoute(path) {
@@ -3968,20 +3975,13 @@ export default function App() {
   const [selectedType, setSelectedType] = useState('');
   const [sortBy, setSortBy] = useState('popular');
   const [wishlist, setWishlist] = useState(() => {
-    const storedWishlist = readCustomerStorage(CUSTOMER_WISHLIST_STORAGE_KEY, []);
+    const storedWishlist = readLocalPreference(CUSTOMER_WISHLIST_STORAGE_KEY, []);
     return Array.isArray(storedWishlist) ? storedWishlist.filter(Boolean) : [];
   });
   const [cart, setCart] = useState({});
-  const [customerProfile, setCustomerProfile] = useState(() =>
-    normalizeCustomerProfile(readCustomerStorage(CUSTOMER_PROFILE_STORAGE_KEY, emptyCustomerProfile)),
-  );
-  const [bulkOrderProfile, setBulkOrderProfile] = useState(() =>
-    normalizeBulkOrderProfile(readCustomerStorage(CUSTOMER_BULK_PROFILE_STORAGE_KEY, emptyBulkOrderProfile)),
-  );
-  const [customerOrders, setCustomerOrders] = useState(() => {
-    const storedOrders = readCustomerStorage(CUSTOMER_ORDER_HISTORY_STORAGE_KEY, []);
-    return Array.isArray(storedOrders) ? storedOrders.map(normalizeCustomerOrder) : [];
-  });
+  const [customerProfile, setCustomerProfile] = useState(emptyCustomerProfile);
+  const [bulkOrderProfile, setBulkOrderProfile] = useState(emptyBulkOrderProfile);
+  const [customerOrders, setCustomerOrders] = useState([]);
   const [productsList, setProductsList] = useState(() => initialProducts.map(normalizeProduct));
   const [isProductLoading, setIsProductLoading] = useState(true);
   const [productError, setProductError] = useState('');
@@ -4004,20 +4004,8 @@ export default function App() {
   const [orderConfirmation, setOrderConfirmation] = useState(null);
 
   useEffect(() => {
-    writeCustomerStorage(CUSTOMER_WISHLIST_STORAGE_KEY, wishlist);
+    writeLocalPreference(CUSTOMER_WISHLIST_STORAGE_KEY, wishlist);
   }, [wishlist]);
-
-  useEffect(() => {
-    writeCustomerStorage(CUSTOMER_PROFILE_STORAGE_KEY, customerProfile);
-  }, [customerProfile]);
-
-  useEffect(() => {
-    writeCustomerStorage(CUSTOMER_BULK_PROFILE_STORAGE_KEY, bulkOrderProfile);
-  }, [bulkOrderProfile]);
-
-  useEffect(() => {
-    writeCustomerStorage(CUSTOMER_ORDER_HISTORY_STORAGE_KEY, customerOrders);
-  }, [customerOrders]);
 
   useEffect(() => {
     const handleRouteChange = () => setRoute(getCurrentRoute());
@@ -4032,6 +4020,12 @@ export default function App() {
   useEffect(() => {
     let isMounted = true;
     let unsubscribe = () => {};
+
+    if (!canAccessAdmin()) {
+      setIsAdminAuthenticated(false);
+      setIsAdminAuthLoading(false);
+      return () => {};
+    }
 
     async function loadAdminSession() {
       setIsAdminAuthLoading(true);
@@ -4113,11 +4107,12 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (route.type !== 'adminOrders' || !isAdminAuthenticated) return;
+    if (!canAccessAdmin() || route.type !== 'adminOrders' || !isAdminAuthenticated) return;
     loadAdminOrders();
   }, [isAdminAuthenticated, route.type]);
 
   useEffect(() => {
+    if (!canAccessAdmin()) return;
     if (isAdminAuthLoading) return;
 
     if ((route.type === 'adminProducts' || route.type === 'adminOrders') && !isAdminAuthenticated) {
@@ -4148,7 +4143,7 @@ export default function App() {
 
   const cartItems = useMemo(() => Object.values(cart), [cart]);
   const cartCount = getCartCount(cart);
-  const isAdminRoute = route.type === 'adminLogin' || route.type === 'adminProducts' || route.type === 'adminOrders';
+  const isAdminRoute = isAdminRouteType(route.type);
 
   const filteredProducts = useMemo(() => {
     const normalizedSearch = searchTerm.trim().toLowerCase();
@@ -4406,12 +4401,24 @@ export default function App() {
       return;
     }
 
+    if (!canSubmitLiveOrder()) {
+      setOrderCreationError(safeModeMessage);
+      setIsCheckoutOpen(false);
+      setIsCartOpen(true);
+      return;
+    }
+
     setOrderCreationError('');
     setIsCartOpen(false);
     setIsCheckoutOpen(true);
   };
 
   const placeOrder = async (orderRequest) => {
+    if (!canSubmitLiveOrder()) {
+      setOrderCreationError(safeModeMessage);
+      return;
+    }
+
     setIsOrderCreating(true);
     setOrderCreationError('');
 
@@ -4531,18 +4538,23 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#fffaf0] text-[#351b12]">
       {!isAdminRoute && (
-        <Header
-          cartCount={cartCount}
-          wishlistCount={wishlist.length}
-          searchTerm={searchTerm}
-          onSearch={setSearchTerm}
-          onOpenCart={() => setIsCartOpen(true)}
-          onOpenTrack={() => setIsTrackOpen(true)}
-          onOpenAccount={() => setIsAccountOpen(true)}
-        />
+        <>
+          <Header
+            cartCount={cartCount}
+            wishlistCount={wishlist.length}
+            searchTerm={searchTerm}
+            onSearch={setSearchTerm}
+            onOpenCart={() => setIsCartOpen(true)}
+            onOpenTrack={() => setIsTrackOpen(true)}
+            onOpenAccount={() => setIsAccountOpen(true)}
+          />
+          <ReadOnlyBanner />
+        </>
       )}
       <main>
-        {route.type === 'adminLogin' ? (
+        {isAdminRoute && !canAccessAdmin() ? (
+          <AdminUnavailable />
+        ) : route.type === 'adminLogin' ? (
           isAdminAuthLoading ? (
             <AdminLoadingScreen />
           ) : (
@@ -4637,9 +4649,10 @@ export default function App() {
           onRemove={decreaseCart}
           onDelete={deleteCartItem}
           onCheckout={startCheckout}
+          checkoutDisabled={!canSubmitLiveOrder()}
         />
       )}
-      {!isAdminRoute && isCheckoutOpen && (
+      {!isAdminRoute && isCheckoutOpen && canSubmitLiveOrder() && (
         <CheckoutModal
           cartItems={cartItems}
           onClose={() => setIsCheckoutOpen(false)}

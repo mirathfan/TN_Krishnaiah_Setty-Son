@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { runtimeSafety } from '../config/runtimeSafety';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
@@ -14,7 +15,9 @@ function hasValidSupabaseUrl(value) {
   }
 }
 
-export const isSupabaseConfigured = Boolean(hasValidSupabaseUrl(supabaseUrl) && supabaseAnonKey);
+export const isSupabaseConfigured = Boolean(
+  !runtimeSafety.readOnly && hasValidSupabaseUrl(supabaseUrl) && supabaseAnonKey,
+);
 
 export const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey)

@@ -1,3 +1,4 @@
+import { assertDatabaseWriteAllowed, canAccessAdmin } from '../config/runtimeSafety';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 import { slugify } from './productService';
 
@@ -82,6 +83,9 @@ export function validateImageFile(file) {
 }
 
 export async function uploadProductImage(file, options = {}) {
+  assertDatabaseWriteAllowed('Uploading product images');
+  if (!canAccessAdmin()) throw new Error('Product image uploads are unavailable while admin access is blocked.');
+
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Image upload requires Supabase configuration. You can still paste an image URL manually while Supabase is unavailable.');
   }
@@ -114,6 +118,9 @@ export async function uploadProductImage(file, options = {}) {
 }
 
 export async function deleteProductImage(path) {
+  assertDatabaseWriteAllowed('Deleting product images');
+  if (!canAccessAdmin()) throw new Error('Product image deletion is unavailable while admin access is blocked.');
+
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Image deletion requires Supabase.');
   }

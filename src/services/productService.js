@@ -1,4 +1,5 @@
 import { initialProducts } from '../data/demoProducts';
+import { assertDatabaseWriteAllowed, runtimeSafety } from '../config/runtimeSafety';
 import { isSupabaseConfigured, supabase } from '../lib/supabaseClient';
 
 const PRODUCTS_TABLE = 'products';
@@ -126,7 +127,12 @@ export function normalizeProduct(product = {}) {
     description: product.description || product.short_description || '',
     syncStatus: product.syncStatus || product.sync_status || '',
     syncMessage: product.syncMessage || product.sync_message || '',
+    isCatalogPreview: product.isCatalogPreview ?? runtimeSafety.useBundledPreviewCatalog,
   };
+}
+
+export function getBundledPreviewProducts() {
+  return initialProducts.map((product) => normalizeProduct({ ...product, isCatalogPreview: true }));
 }
 
 function readLocalProducts() {
@@ -221,6 +227,7 @@ function throwSupabaseError(error) {
 }
 
 export async function getProducts() {
+  if (runtimeSafety.useBundledPreviewCatalog) return getBundledPreviewProducts();
   if (!isSupabaseConfigured) return readLocalProducts();
 
   const { data, error } = await supabase
@@ -233,6 +240,7 @@ export async function getProducts() {
 }
 
 export async function getActiveProducts() {
+  if (runtimeSafety.useBundledPreviewCatalog) return getBundledPreviewProducts();
   if (!isSupabaseConfigured) {
     return readLocalProducts().filter((product) => product.isActive !== false);
   }
@@ -248,6 +256,10 @@ export async function getActiveProducts() {
 }
 
 export async function getProductBySlug(slug) {
+  if (runtimeSafety.useBundledPreviewCatalog) {
+    return getBundledPreviewProducts().find((product) => product.slug === slug || product.id === slug) || null;
+  }
+
   if (!isSupabaseConfigured) {
     return readLocalProducts().find((product) => product.slug === slug || product.id === slug) || null;
   }
@@ -272,6 +284,8 @@ export async function getProductBySlug(slug) {
 }
 
 export async function createProduct(product) {
+  assertDatabaseWriteAllowed('Creating products');
+
   if (!isSupabaseConfigured) {
     const currentProducts = readLocalProducts();
     const normalizedProduct = normalizeProduct(product);
@@ -290,6 +304,8 @@ export async function createProduct(product) {
 }
 
 export async function updateProduct(id, product) {
+  assertDatabaseWriteAllowed('Updating products');
+
   if (!isSupabaseConfigured) {
     const currentProducts = readLocalProducts();
     const existingProduct = currentProducts.find((item) => item.id === id);
@@ -316,6 +332,8 @@ export async function updateProduct(id, product) {
 }
 
 export async function deleteProduct(id) {
+  assertDatabaseWriteAllowed('Deleting products');
+
   if (!isSupabaseConfigured) {
     const currentProducts = readLocalProducts();
     writeLocalProducts(currentProducts.filter((product) => product.id !== id && product.slug !== id && product.dbId !== id));
@@ -333,6 +351,8 @@ export async function deleteProduct(id) {
 }
 
 export async function resetProductsToDemo() {
+  assertDatabaseWriteAllowed('Resetting the catalog');
+
   const demoProducts = initialProducts.map(normalizeProduct);
 
   if (!isSupabaseConfigured) {
